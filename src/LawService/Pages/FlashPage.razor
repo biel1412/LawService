@@ -1,0 +1,529 @@
+@inherits PageBase
+@*  FLASHCARDS — baralhos com repetição espaçada. *@
+
+<div class="side" style="width:286px">
+    <div class="col side-in" style="gap:10px;padding:20px 10px 14px 16px">
+        <div class="panel-head">
+            <div class="h1">Flashcards</div>
+            <span class="sp"></span>
+            <button class="btn soft" @onclick="NewDeck"><Ic N="plus" C="@T["accent"]" S="16" /><span>Baralho</span></button>
+        </div>
+        @{
+            int total = Decks.Objs().Sum(d => d.A("cards").Count);
+            int dueAll = Decks.Objs().SelectMany(d => d.A("cards").Objs()).Count(IsDue);
+        }
+        <div class="faint">@Decks.Count baralhos  ·  @total cartões  ·  @dueAll para hoje</div>
+        <div class="scroll grow" style="padding:4px 6px 4px 0">
+            @foreach (var d in Decks.Objs())
+            {
+                var dk = d;
+                var c = d.S("color");
+                var cards = d.A("cards").List();
+                int due = cards.Count(IsDue);
+                int n = cards.Count;
+                int dom = cards.Count(x => x.I("interval") >= 21);
+                <div class="stripcard deck @(d == _deck ? "sel" : "")" style="--strip:@c" @onclick="() => SelectDeck(dk)"
+                     @oncontextmenu="e => DeckMenu(dk, e)" @oncontextmenu:preventDefault="true">
+                    <div class="col" style="gap:6px;padding:12px 14px 12px 16px">
+                        <div class="row" style="gap:6px">
+                            <span class="h3 ell grow">@d.S("name")</span>
+                            @if (due > 0)
+                            {
+                                <Chip Text="@($"{due} hoje")" Color="@c" Strong="true" />
+                            }
+                        </div>
+                        <div class="faint">@n cartões  ·  @dom dominados</div>
+                        <div class="prog" style="margin-top:2px"><span style="width:@(n > 0 ? 100.0 * dom / n : 0)%;background:@c"></span></div>
+                    </div>
+                </div>
+            }
+            @if (Decks.Count == 0)
+            {
+                <div class="faint center wrap">Crie seu primeiro baralho no botão acima.</div>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="main stack">
+    @if (_deck == null)
+    {
+        <EmptyState Icon="cards-outline" Title="Nenhum baralho" Text="Crie um baralho para começar a estudar com cartões." BtnText="Novo baralho" OnClick="NewDeck" />
+    }
+    else
+    {
+        var cs = _deck.A("cards").List();
+        <div class="col grow" style="gap:16px;padding:22px 30px 24px">
+            <div class="row" style="gap:8px">
+                <button class="swbtn" style="width:28px;height:28px" title="Mudar cor" @ref="_colorBtn" @onclick="ColorMenu"><Swatch Color="@_deck.S("color")" Size="20" /></button>
+                <div class="h1 ell">@_deck.S("name")</div>
+                <button class="tool" title="Opções do baralho" @ref="_moreBtn" @onclick="MoreMenu"><Ic N="dots-horizontal" C="@T["muted"]" /></button>
+                <span class="sp"></span>
+                <Segmented Options="ModeOpts" Value="@_mode" ValueChanged="SetMode" />
+            </div>
+            <div class="row" style="gap:12px">
+                @Stat("cards-outline", T["accent"], cs.Count, "cartões")
+                @Stat("calendar-clock", T["warn"], cs.Count(IsDue), "para hoje")
+                @Stat("progress-clock", T["info"], cs.Count(c => c.B("reps") && c.I("interval") < 21), "aprendendo")
+                @Stat("trophy-outline", T["success"], cs.Count(c => c.I("interval") >= 21), "dominados")
+            </div>
+
+            @if (_mode == "cards")
+            {
+                <div class="row grow" style="gap:16px;align-items:stretch">
+                    @* ─────── lista *@
+                    <div class="card col" style="flex:3;min-width:0;gap:8px;padding:14px 8px 8px 14px">
+                        <SearchBox @ref="_cSearch" Placeholder="Buscar cartões…" Value="@_cq" ValueChanged="v => _cq = v" />
+                        <div class="ctable-row head"><span>FRENTE</span><span>VERSO</span><span>NÍVEL</span><span>REVISÃO</span></div>
+                        @{
+                            var q = (_cq ?? "").Trim().ToLowerInvariant();
+                            var rows = cs.Where(c => q.Length == 0 || c.S("front").ToLowerInvariant().Contains(q) || c.S("back").ToLowerInvariant().Contains(q)).ToList();
+                        }
+                        <div class="scroll grow">
+                            @foreach (var c in rows)
+                            {
+                                var cc = c;
+                                var (lvl, col) = CardLevel(c);
+                                var dd = c.S("due");
+                                var ds = string.CompareOrdinal(dd, IsoDate(Today())) <= 0 ? "hoje" : FmtBr(dd);
+                                <div class="ctable-row @(_card == c ? "sel" : "")" @onclick="() => OnCardSel(cc)">
+                                    <span class="ell">@Collapse(c.S("front"))</span>
+                                    <span class="ell muted">@Collapse(c.S("back"))</span>
+                                    <span class="row" style="gap:6px"><Swatch Color="@col" Size="10" /><span style="color:@Ink(col, .15)">@lvl</span></span>
+                                    <span class="ell muted">@ds</span>
+                                </div>
+                            }
+                            @if (rows.Count == 0)
+                            {
+                                <div class="faint center wrap" style="padding:12px">Nenhum cartão. Escreva a frente e o verso ao lado e salve.</div>
+                            }
+                        </div>
+                    </div>
+                    @* ─────── edição *@
+                    <div class="card col" style="flex:2;min-width:300px;max-width:420px;gap:8px;padding:18px 20px" @onkeydown="EditKey">
+                        <div class="row" style="gap:8px">
+                            <div class="h2">Cartão</div>
+                            <span class="badge">@(_card != null ? $"{_deck.A("cards").IndexOf(_card) + 1} de {_deck.A("cards").Count}" : "novo")</span>
+                            <span class="sp"></span>
+                            <button class="tool" title="Novo cartão (Alt+N)" @onclick="() => NewCard()"><Ic N="plus" C="@T["accent"]" /></button>
+                        </div>
+                        <div class="caption">FRENTE · PERGUNTA</div>
+                        <textarea class="field grow" placeholder="Ex.: O que é legítima defesa?" value="@_front" @oninput="e => _front = V(e)" @ref="_frontEl"></textarea>
+                        <div class="caption">VERSO · RESPOSTA</div>
+                        <textarea class="field grow" placeholder="Ex.: Art. 25 do CP — repelir injusta agressão, atual ou iminente…" value="@_back" @oninput="e => _back = V(e)"></textarea>
+                        <div class="row" style="gap:8px">
+                            <button class="btn danger" title="Excluir cartão" disabled="@(_card == null)" @onclick="DeleteCard"><Ic N="delete-outline" C="@(_card == null ? T["faint"] : T["danger"])" S="16" /></button>
+                            <span class="sp"></span>
+                            <button class="btn primary" @onclick="() => SaveCard(false)"><Ic N="content-save-outline" C="#fff" S="16" /><span>Salvar</span></button>
+                        </div>
+                        <div class="faint" style="text-align:right">Ctrl+Enter salva e já abre um cartão novo</div>
+                    </div>
+                </div>
+            }
+            else if (_queue.Count > 0)
+            {
+                var c = _queue[0];
+                var (lvl, lc) = CardLevel(c);
+                var dcol = _deck.S("color");
+                <div class="col grow" style="gap:8px">
+                    <div class="row">
+                        <span class="muted">Cartão @Math.Min(_doneN + 1, _total) de @_total   ·   @_queue.Count na fila</span>
+                        <span class="sp"></span>
+                        <button class="btn ghost" @onclick="() => StartStudy(true)"><Ic N="shuffle-variant" S="16" /><span>Estudar todos</span></button>
+                    </div>
+                    <div class="prog"><span style="width:@(_total > 0 ? 100.0 * _doneN / _total : 0)%;background:@dcol"></span></div>
+                    <div class="flip-area" tabindex="0" @ref="_flipEl" @onclick="DoFlip" @onkeydown="FlipKey" @onkeydown:preventDefault="false">
+                        <div class="flip @(_flipped ? "back" : "")">
+                            <div class="face">
+                                <div class="face-strip" style="background:@Grad(dcol, Mix(dcol, "#ffffff", .5), "90deg")"></div>
+                                <div class="face-top">
+                                    <span class="face-lab" style="color:@dcol">PERGUNTA</span>
+                                    <span class="face-pill" style="background:@Tint(lc, .86);color:@Ink(lc, .2)">@lvl.ToUpper()</span>
+                                </div>
+                                <div class="face-body"><div class="face-text" style="font-size:@Ui.Pt(FontFor(c.S("front")))">@c.S("front")</div></div>
+                                <div class="face-hint">Clique ou pressione Espaço para ver a resposta</div>
+                            </div>
+                            <div class="face b" style="background:@Tint(dcol, .965)">
+                                <div class="face-strip" style="background:@Grad(dcol, Mix(dcol, "#ffffff", .5), "90deg")"></div>
+                                <div class="face-top">
+                                    <span class="face-lab" style="color:@dcol">RESPOSTA</span>
+                                    <span class="face-pill" style="background:@Tint(lc, .86);color:@Ink(lc, .2)">@lvl.ToUpper()</span>
+                                </div>
+                                <div class="face-body">
+                                    <div class="face-q">@Collapse(c.S("front"))</div>
+                                    <div class="face-sep"></div>
+                                    <div class="face-text" style="font-size:@Ui.Pt(FontFor(c.S("back")))">@c.S("back")</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row" style="height:64px;gap:10px">
+                        @if (!_showGrades)
+                        {
+                            <span class="sp"></span>
+                            <button class="btn primary" style="min-width:260px;min-height:48px;font-size:14.7px" @onclick="DoFlip"><Ic N="rotate-3d-variant" C="#fff" S="18" /><span>Mostrar resposta</span></button>
+                            <span class="sp"></span>
+                        }
+                        else
+                        {
+                            @for (int i = 0; i < 4; i++)
+                            {
+                                var k = i;
+                                var (name, gc) = Grades[i];
+                                <button class="grade" style="--gbg:@Tint(gc, .88);--ghov:@Tint(gc, .78);color:@Ink(gc, .25);border-color:@Tint(gc, .7)"
+                                        @onclick="() => Answer(k)">@($"{name}   ·   {k + 1}\n{FmtInterval(NextInterval(c, k).Item1)}")</button>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+                bool has = _deck.A("cards").Count > 0;
+                <div class="col grow" style="align-items:center;justify-content:center;gap:6px">
+                    @if (_total > 0)
+                    {
+                        int pct = PyRound(100.0 * _rightN / Math.Max(1, _total));
+                        <div class="empty-badge" style="width:84px;height:84px;border-radius:26px;background:@T["success_soft"]"><Ic N="trophy-outline" C="@T["success"]" S="40" /></div>
+                        <div class="h1">Sessão concluída!</div>
+                        <div class="muted center" style="max-width:560px">Você revisou @_total cartão(ões) e acertou de primeira @pct%. Volte amanhã para manter o ritmo.</div>
+                    }
+                    else
+                    {
+                        <div class="empty-badge" style="width:84px;height:84px;border-radius:26px"><Ic N="@(has ? "calendar-check-outline" : "cards-outline")" C="@T["accent"]" S="40" /></div>
+                        <div class="h1">@(has ? "Tudo em dia por hoje" : "Baralho vazio")</div>
+                        <div class="muted center" style="max-width:560px">@(has ? "Nenhum cartão agendado para hoje." : "Adicione cartões para começar a estudar.")</div>
+                    }
+                    <div class="row" style="gap:8px;margin-top:10px">
+                        @if (has)
+                        {
+                            <button class="btn soft" @onclick="() => StartStudy(true)"><Ic N="shuffle-variant" C="@T["accent"]" S="16" /><span>Estudar todos mesmo assim</span></button>
+                        }
+                        else
+                        {
+                            <button class="btn" @onclick='() => SetMode("cards")'><Ic N="plus" S="16" /><span>Adicionar cartões</span></button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    protected override string PageKey => "flashcards";
+
+    static readonly (string, string, string)[] ModeOpts = { ("cards", "Cartões", "cards-outline"), ("study", "Estudar", "school-outline") };
+    static readonly (string, string)[] Grades = { ("Errei", T["danger"]), ("Difícil", T["warn"]), ("Bom", T["info"]), ("Fácil", T["success"]) };
+
+    JsonArray Decks => Store.Data.A("decks");
+    JsonObject _deck, _card;
+    string _mode = "cards", _cq = "", _front = "", _back = "";
+    List<JsonObject> _queue = new();
+    int _total, _doneN, _rightN;
+    bool _flipped, _flipping, _showGrades;
+    SearchBox _cSearch;
+    ElementReference _colorBtn, _moreBtn, _frontEl, _flipEl;
+    readonly Random _rnd = new();
+
+    protected override void Init()
+    {
+        if (Decks.Count > 0) SelectDeck((JsonObject)Decks[0]);
+    }
+
+    RenderFragment Stat(string icon, string color, int value, string text) => __builder =>
+    {
+        <div class="stat">
+            <div class="icon-badge" style="width:34px;height:34px;border-radius:10px;background:@Tint(color, .86)"><Ic N="@icon" C="@color" S="18" /></div>
+            <div class="col"><span class="stat-val">@value</span><span class="faint">@text</span></div>
+        </div>
+    };
+
+    // ─────────────────────────── regras de revisão
+    public static (int, double) NextInterval(JsonObject card, int grade)
+    {
+        int iv = card.I("interval");
+        double ease = card.D("ease", 2.5);
+        if (grade == 0) return (0, Math.Max(1.3, ease - 0.2));
+        if (grade == 1) return (iv < 1 ? 1 : Math.Max(iv + 1, PyRound(iv * 1.2)), Math.Max(1.3, ease - 0.15));
+        if (grade == 2) return (iv < 1 ? 1 : iv < 3 ? 3 : PyRound(iv * ease), ease);
+        return (iv < 1 ? 4 : PyRound(Math.Max(iv, 2) * ease * 1.3), ease + 0.15);
+    }
+
+    static int PyRound(double v) => (int)Math.Round(v, MidpointRounding.ToEven);
+
+    public static string FmtInterval(int d)
+    {
+        if (d == 0) return "agora";
+        if (d == 1) return "1 dia";
+        if (d < 30) return $"{d} dias";
+        if (d < 365)
+        {
+            int m = PyRound(d / 30.0);
+            return m == 1 ? $"{m} mês" : $"{m} meses";
+        }
+        return (d / 365.0).ToString("0.0", Inv).Replace(".", ",") + " anos";
+    }
+
+    public static (string, string) CardLevel(JsonObject c)
+    {
+        int iv = c.I("interval");
+        if (!c.B("reps")) return ("Novo", T["info"]);
+        if (iv < 7) return ("Aprendendo", T["warn"]);
+        if (iv < 21) return ("Revisando", T["accent"]);
+        return ("Dominado", T["success"]);
+    }
+
+    public static bool IsDue(JsonObject c) => string.CompareOrdinal(c.S("due"), IsoDate(Today())) <= 0;
+
+    static double FontFor(string s) => s.Length < 80 ? 21 : s.Length < 200 ? 17 : s.Length < 420 ? 14 : 12;
+
+    // ─────────────────────────── baralhos
+    void DeckMenu(JsonObject d, MouseEventArgs e)
+    {
+        SelectDeck(d);
+        Win.ShowMenu(DeckItems(d), e);
+    }
+
+    Task MoreMenu() => _deck == null ? Task.CompletedTask : Win.ShowMenuAt(DeckItems(_deck), _moreBtn);
+
+    List<MItem> DeckItems(JsonObject d) => new()
+    {
+        MItem.Async("pencil-outline", "Renomear", RenameDeck),
+        Ui.ColorSub("Mudar cor", "palette-outline", new ColorSpec
+        {
+            Colors = PALETTE, Cols = 6, Title = "Cor do baralho", RecentKey = "entity", Current = d.S("color"), Picked = SetDeckColor,
+        }),
+        MItem.Sep(),
+        MItem.Async("restart", "Reiniciar progresso", ResetDeck),
+        MItem.Async("delete-outline", "Excluir baralho", DeleteDeck, T["danger"]),
+    };
+
+    Task ColorMenu() => Win.ShowMenuAt(Ui.ColorMenu(new ColorSpec
+    {
+        Colors = PALETTE, Cols = 6, Title = "Cor do baralho", RecentKey = "entity", Current = _deck?.S("color"), Picked = SetDeckColor,
+    }), _colorBtn);
+
+    async Task NewDeck()
+    {
+        var name = await Win.Ask("Novo baralho", "Dê um nome para o baralho.", "", icon: "cards-outline", ok: "Criar",
+            placeholder: "Ex.: Súmulas do STJ");
+        if (string.IsNullOrEmpty(name)) return;
+        var d = new JsonObject
+        {
+            ["id"] = Uid(), ["name"] = name, ["color"] = PALETTE[(Decks.Count + 6) % PALETTE.Length], ["created"] = NowIso(),
+            ["cards"] = new JsonArray(),
+        };
+        Decks.Add(d);
+        Win.Save();
+        SelectDeck(d);
+        SetMode("cards");
+        Post(() => Js.Focus(_frontEl).AsTask());
+    }
+
+    async Task RenameDeck()
+    {
+        if (_deck == null) return;
+        var name = await Win.Ask("Renomear baralho", "", _deck.S("name"));
+        if (string.IsNullOrEmpty(name)) return;
+        _deck["name"] = name;
+        Win.Save();
+    }
+
+    void SetDeckColor(string c)
+    {
+        if (_deck == null || c == null) return;
+        _deck["color"] = c;
+        Win.Save();
+    }
+
+    async Task ResetDeck()
+    {
+        if (_deck == null || !await Win.Confirm("Reiniciar progresso?", "Todos os cartões voltam a ser “novos”.", ok: "Reiniciar",
+                icon: "restart")) return;
+        foreach (var c in _deck.A("cards").Objs())
+        {
+            c["interval"] = 0;
+            c["ease"] = 2.5;
+            c["due"] = "";
+            c["reps"] = 0;
+            c["lapses"] = 0;
+        }
+        Win.Save();
+        SelectDeck(_deck);
+    }
+
+    async Task DeleteDeck()
+    {
+        if (_deck == null) return;
+        if (!await Win.Confirm("Excluir baralho?", $"“{_deck.S("name")}” e seus {_deck.A("cards").Count} cartões serão excluídos.")) return;
+        Decks.Remove(_deck);
+        _deck = null;
+        Win.Save();
+        if (Decks.Count > 0) SelectDeck((JsonObject)Decks[0]);
+        Win.RefreshCounts();
+    }
+
+    void SelectDeck(JsonObject d)
+    {
+        _deck = d;
+        _cq = "";
+        NewCard(false);
+        SetMode(_mode);
+    }
+
+    public void SetMode(string mode)
+    {
+        _mode = mode;
+        if (_deck == null) return;
+        if (mode == "study") StartStudy(false);
+    }
+
+    // ─────────────────────────── lista/edição
+    void OnCardSel(JsonObject c)
+    {
+        if (_deck == null) return;
+        _card = c;
+        _front = c.S("front");
+        _back = c.S("back");
+    }
+
+    void NewCard(bool focus = true)
+    {
+        _card = null;
+        _front = "";
+        _back = "";
+        if (focus) Post(() => Js.Focus(_frontEl).AsTask());
+    }
+
+    async Task EditKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.CtrlKey) await SaveCard(true);
+    }
+
+    async Task SaveCard(bool thenNew)
+    {
+        if (_deck == null) return;
+        string f = (_front ?? "").Trim(), b = (_back ?? "").Trim();
+        if (f.Length == 0 || b.Length == 0)
+        {
+            await Win.Info("Cartão incompleto", "Preencha a frente e o verso.", "alert-outline");
+            return;
+        }
+        bool isNew = _card == null;
+        if (isNew)
+        {
+            _card = new JsonObject
+            {
+                ["id"] = Uid(), ["interval"] = 0, ["ease"] = 2.5, ["due"] = "", ["reps"] = 0, ["lapses"] = 0, ["created"] = NowIso(),
+            };
+            _deck.A("cards").Add(_card);
+        }
+        _card["front"] = f;
+        _card["back"] = b;
+        Win.Save();
+        if (thenNew) NewCard();
+        else OnCardSel(_card);
+        Win.Toast(isNew ? "Cartão criado" : "Cartão salvo");
+        Win.RefreshCounts();
+    }
+
+    async Task DeleteCard()
+    {
+        if (_card == null || _deck == null) return;
+        if (!await Win.Confirm("Excluir cartão?", "Este cartão será removido do baralho.")) return;
+        _deck.A("cards").Remove(_card);
+        NewCard(false);
+        Win.Save();
+        Win.RefreshCounts();
+    }
+
+    // ─────────────────────────── estudo
+    void StartStudy(bool allCards)
+    {
+        if (_deck == null) return;
+        _mode = "study";
+        var cards = allCards ? _deck.A("cards").List() : _deck.A("cards").Objs().Where(IsDue).ToList();
+        for (int i = cards.Count - 1; i > 0; i--)
+        {
+            int j = _rnd.Next(i + 1);
+            (cards[i], cards[j]) = (cards[j], cards[i]);
+        }
+        _queue = cards;
+        _total = cards.Count;
+        _doneN = 0;
+        _rightN = 0;
+        ShowCurrent();
+    }
+
+    void ShowCurrent()
+    {
+        _flipped = false;
+        _flipping = false;
+        _showGrades = false;
+        if (_queue.Count > 0) Post(() => Js.Focus(_flipEl).AsTask());
+        Win.RefreshCounts();
+    }
+
+    async Task DoFlip()
+    {
+        if (_queue.Count == 0 || _flipped || _flipping) return;
+        _flipping = true;
+        _flipped = true;
+        StateHasChanged();
+        await Task.Delay(200);
+        _showGrades = true;
+        _flipping = false;
+    }
+
+    async Task FlipKey(KeyboardEventArgs e)
+    {
+        if (e.Key == " " || e.Key == "Enter") await DoFlip();
+        else if (e.Key.Length == 1 && e.Key[0] >= '1' && e.Key[0] <= '4') Answer(e.Key[0] - '1');
+    }
+
+    void Answer(int grade)
+    {
+        if (_queue.Count == 0 || !_flipped) return;
+        var c = _queue[0];
+        _queue.RemoveAt(0);
+        bool first = !c.B("_seen");
+        var (iv, ease) = NextInterval(c, grade);
+        c["interval"] = iv;
+        c["ease"] = Math.Round(ease, 2);
+        c["reps"] = c.I("reps") + 1;
+        c["due"] = IsoDate(Today().AddDays(iv));
+        if (grade == 0)
+        {
+            c["lapses"] = c.I("lapses") + 1;
+            c["_seen"] = true;
+            _queue.Insert(Math.Min(_queue.Count, 3), c);
+        }
+        else
+        {
+            c.Remove("_seen");
+            _doneN++;
+            if (first) _rightN++;
+        }
+        Win.Save();
+        ShowCurrent();
+    }
+
+    public override void OnShown()
+    {
+        if (_deck != null && _mode == "study" && _queue.Count == 0) StartStudy(false);
+        Refresh();
+    }
+
+    public override void FocusSearch()
+    {
+        SetMode("cards");
+        Post(() => _cSearch?.FocusAll() ?? Task.CompletedTask);
+    }
+
+    public override void CtrlN()
+    {
+        SetMode("cards");
+        NewCard();
+    }
+}

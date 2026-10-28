@@ -1,0 +1,697 @@
+@inject Js Js
+@implements IDisposable
+@using System.IO.Compression
+
+@if (!_loaded)
+{
+    <div class="boot">
+        <div class="boot-logo"><i class="mdi mdi-scale-balance"></i></div>
+        <div class="boot-name">LawService</div>
+        <div class="boot-sub">abrindo seus dados…</div>
+    </div>
+}
+else
+{
+    <div class="shell">
+        @* ─────────────── menu lateral *@
+        <aside class="rail @(_compact ? "compact" : "")">
+            <div class="rail-logo">
+                <div class="logo"><Ic N="scale-balance" C="#fff" S="22" /></div>
+                @if (!_compact)
+                {
+                    <div class="col">
+                        <div class="logo-name">@APP_NAME</div>
+                        <div class="logo-sub">seu espaço de aprovação</div>
+                    </div>
+                }
+            </div>
+            <div class="rail-menu">@(_compact ? "" : "MENU")</div>
+            @foreach (var (key, icon, text) in Nav)
+            {
+                var k = key;
+                var on = Current == k;
+                <button class="nav @(on ? "on" : "")" title="@(_compact ? text : $"{text}  (Alt+{Array.IndexOf(Keys, k) + 1})")" @onclick="() => ShowPage(k)">
+                    <Ic N="@icon" C="@(on ? "#ffffff" : T["rail_text"])" S="20" />
+                    @if (!_compact)
+                    {
+                        <span class="nav-text">@text</span>
+                        @if (k != "oab" && k != "tutcc")
+                        {
+                            <span class="nav-badge">@Badge(k)</span>
+                        }
+                    }
+                </button>
+            }
+            <div class="sp"></div>
+            @if (!_compact)
+            {
+                var c = Counts();
+                <div class="today">
+                    <div class="today-title">@c.title</div>
+                    @for (int i = 0; i < 4; i++)
+                    {
+                        <div class="today-row"><Ic N="@TodayIcons[i]" C="#8f95c4" S="15" /><span class="ell">@c.rows[i]</span></div>
+                    }
+                </div>
+            }
+            <div class="row" style="gap:6px;margin-top:8px">
+                @if (!_compact)
+                {
+                    <button class="btn railbtn grow" @ref="_dataBtn" @onclick="DataMenu" title="Exportar, importar e restaurar seus dados">
+                        <Ic N="database-outline" C="@T["rail_text"]" S="16" /><span>Meus dados</span>
+                    </button>
+                }
+                <button class="btn railbtn" style="width:38px;padding:8px 0" title="@(_compact ? "Expandir menu" : "Recolher menu")" @onclick="() => SetCompact(!_compact)">
+                    <Ic N="@(_compact ? "chevron-double-right" : "chevron-double-left")" C="@T["rail_text"]" S="16" />
+                </button>
+            </div>
+            <InputFile @ref="_file" OnChange="Import" accept=".zip,.json" style="display:none" />
+        </aside>
+
+        @* ─────────────── abas *@
+        <main class="pages">
+            <CascadingValue Value="this" IsFixed="true">
+                @if (_mounted.Contains("cadernos"))
+                {
+                    <div class="page @(Current == "cadernos" ? "show" : "")"><NotesPage /></div>
+                }
+                @if (_mounted.Contains("questoes"))
+                {
+                    <div class="page @(Current == "questoes" ? "show" : "")"><QuestionsPage /></div>
+                }
+                @if (_mounted.Contains("flashcards"))
+                {
+                    <div class="page @(Current == "flashcards" ? "show" : "")"><FlashPage /></div>
+                }
+                @if (_mounted.Contains("estagio"))
+                {
+                    <div class="page @(Current == "estagio" ? "show" : "")"><EstagioPage /></div>
+                }
+                @if (_mounted.Contains("tcc"))
+                {
+                    <div class="page @(Current == "tcc" ? "show" : "")"><TccPage /></div>
+                }
+                @if (_mounted.Contains("oab"))
+                {
+                    <div class="page @(Current == "oab" ? "show" : "")"><TutoriaPage /></div>
+                }
+                @if (_mounted.Contains("tutcc"))
+                {
+                    <div class="page @(Current == "tutcc" ? "show" : "")"><TutoriaTccPage /></div>
+                }
+            </CascadingValue>
+            <div class="toast @(_toastOn ? "on" : "")">@_toast</div>
+        </main>
+    </div>
+
+    @* ─────────────── menus *@
+    @if (_menu != null)
+    {
+        <div class="menu-ov" @onclick="CloseMenu" @oncontextmenu="CloseMenu" @oncontextmenu:preventDefault="true"></div>
+        <div class="menu @(_menu.X > _vw - 460 ? "subleft" : "")" @ref="_menuEl" style="left:@Ui.Px(_menu.X);top:@Ui.Px(_menu.Y);visibility:hidden" @key="_menu.Key"
+             @oncontextmenu:preventDefault="true">
+            @RenderItems(_menu.Items)
+        </div>
+    }
+
+    @* ─────────────── diálogos *@
+    @foreach (var d in _dialogs)
+    {
+        var dd = d;
+        <div class="dlg-ov" @onmousedown:stopPropagation="true">
+            <div class="dlg @(dd.Wide ? "wide" : "")" style="@(dd.Wide ? "" : $"width:{dd.Width}px")" @onkeydown="e => DlgKey(dd, e)">
+                @if (dd.Body != null && dd.Title == null)
+                {
+                    @dd.Body
+                }
+                else
+                {
+                    <div class="row top" style="gap:14px">
+                        <div class="icon-badge" style="width:42px;height:42px;border-radius:12px;background:@Tint(dd.Tone, .86)"><Ic N="@dd.Icon" C="@dd.Tone" S="22" /></div>
+                        <div class="col grow" style="gap:4px">
+                            <div class="h2 wrap">@dd.Title</div>
+                            @if (!string.IsNullOrEmpty(dd.Text))
+                            {
+                                <div class="muted wrap pre">@dd.Text</div>
+                            }
+                        </div>
+                    </div>
+                    @if (dd.Value != null)
+                    {
+                        @if (dd.Multiline)
+                        {
+                            <textarea class="field" style="height:130px" @ref="dd.InputRef" placeholder="@dd.Placeholder" @bind="dd.Value" @bind:event="oninput"></textarea>
+                        }
+                        else
+                        {
+                            <input class="field" @ref="dd.InputRef" placeholder="@dd.Placeholder" @bind="dd.Value" @bind:event="oninput" />
+                        }
+                    }
+                    @if (dd.Body != null)
+                    {
+                        @dd.Body
+                    }
+                    <div class="row" style="gap:8px">
+                        <span class="sp"></span>
+                        @if (dd.Cancel != null)
+                        {
+                            <button class="btn" @onclick="() => CloseDialog(dd, null)">@dd.Cancel</button>
+                        }
+                        <button class="btn @(dd.Danger ? "dsolid" : "primary")" @onclick="() => AcceptDialog(dd)">@dd.Ok</button>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+}
+
+@code {
+    public static readonly string[] Keys = { "cadernos", "questoes", "flashcards", "estagio", "tcc", "oab", "tutcc" };
+
+    static readonly (string key, string icon, string text)[] Nav =
+    {
+        ("cadernos", "notebook-outline", "Cadernos"), ("questoes", "checkbox-marked-circle-outline", "Questões"),
+        ("flashcards", "cards-outline", "Flashcards"), ("estagio", "briefcase-outline", "Estágio"),
+        ("tcc", "school-outline", "TCC"), ("oab", "scale-balance", "Tutoria OAB"),
+        ("tutcc", "account-school-outline", "Tutoria TCC"),
+    };
+
+    static readonly string[] TodayIcons = { "calendar-clock", "target", "file-document-outline", "briefcase-outline" };
+
+    bool _loaded, _compact;
+    public string Current;
+    readonly HashSet<string> _mounted = new();
+    readonly Dictionary<string, PageBase> _pages = new();
+    DotNetObjectReference<App> _ref;
+    ElementReference _dataBtn, _menuEl;
+    InputFile _file;
+    double _vw = 1600;
+
+    public void Register(string key, PageBase p) => _pages[key] = p;
+    public T Page<T>(string key) where T : PageBase => _pages.TryGetValue(key, out var p) ? p as T : null;
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (first)
+        {
+            _ref = DotNetObjectReference.Create(this);
+            await Js.Init(_ref);
+            await LoadAll();
+            return;
+        }
+        if (_menu != null && _menuFit != _menu.Key)
+        {
+            _menuFit = _menu.Key;
+            await Js.FitMenu(_menuEl);
+        }
+        foreach (var d in _dialogs)
+            if (!d.Focused && d.Value != null)
+            {
+                d.Focused = true;
+                try { await Js.Focus(d.InputRef, !d.Multiline); } catch { }
+            }
+        if (_shown != null)
+        {
+            var k = _shown;
+            _shown = null;
+            if (_pages.TryGetValue(k, out var p)) p.OnShown();
+        }
+    }
+
+    int _menuFit = -1;
+    string _shown;
+
+    // ─────────────────────────── dados
+    async Task LoadAll()
+    {
+        string json = null;
+        try { json = await Js.KvGet("estudos"); }
+        catch { }
+        JsonObject data = null;
+        bool damaged = false;
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            try { data = JsonNode.Parse(json) as JsonObject; }
+            catch { data = null; }
+            if (data == null)
+            {
+                damaged = true;
+                try { await Js.KvSet($"estudos-danificado-{DateTime.Now:yyyyMMddHHmmss}", json); } catch { }
+            }
+        }
+        Store.Data = Store.Normalize(data ?? Store.SampleData());
+        Store.FillPlain(Store.Data);
+        if (data != null) await DailyBackup(json);
+        else await PersistNow();
+        _compact = Store.Settings.B("compact");
+        _loaded = true;
+        ShowPage("cadernos");
+        if (damaged) Toast("Os dados salvos estavam danificados — uma cópia foi guardada");
+    }
+
+    async Task DailyBackup(string json)
+    {
+        try
+        {
+            var key = "backup-" + IsoDate(Today());
+            var idx = JsonNode.Parse(await Js.KvGet("backups") ?? "[]") as JsonArray ?? new JsonArray();
+            var list = idx.Strs();
+            if (list.Contains(key)) return;
+            await Js.KvSet(key, json);
+            list.Add(key);
+            list.Sort(StringComparer.Ordinal);
+            while (list.Count > 15)
+            {
+                await Js.KvDel(list[0]);
+                list.RemoveAt(0);
+            }
+            await Js.KvSet("backups", J.Arr(list).ToJsonString());
+        }
+        catch { }
+    }
+
+    CancellationTokenSource _saveCts;
+    bool _dirty;
+
+    /// <summary>Agenda a gravação dos dados no navegador.</summary>
+    public void Save()
+    {
+        _dirty = true;
+        _saveCts?.Cancel();
+        _saveCts = new CancellationTokenSource();
+        var token = _saveCts.Token;
+        _ = SaveLater(token);
+    }
+
+    async Task SaveLater(CancellationToken token)
+    {
+        try
+        {
+            await Js.SetDirty(true);
+            await Task.Delay(350, token);
+        }
+        catch { return; }
+        if (!token.IsCancellationRequested) await InvokeAsync(PersistNow);
+    }
+
+    public async Task PersistNow()
+    {
+        try
+        {
+            await Js.KvSet("estudos", Store.Serialize());
+            _dirty = false;
+            await Js.SetDirty(false);
+        }
+        catch (Exception exc)
+        {
+            await Info("Erro ao salvar", $"Não foi possível salvar os dados neste navegador:\n{exc.Message}", "alert-outline");
+        }
+    }
+
+    [JSInvokable]
+    public async Task Flush()
+    {
+        foreach (var p in _pages.Values)
+            try { p.Flush(); } catch { }
+        if (_dirty)
+        {
+            _saveCts?.Cancel();
+            await PersistNow();
+        }
+    }
+
+    // ─────────────────────────── navegação
+    void SetCompact(bool on)
+    {
+        _compact = on;
+        Store.Settings["compact"] = on;
+        Save();
+    }
+
+    public void ShowPage(string key)
+    {
+        if (Current != null && Current != key && _pages.TryGetValue(Current, out var old)) old.Flush();
+        if (Current == key) return;
+        Current = key;
+        bool was = _mounted.Contains(key);
+        _mounted.Add(key);
+        if (was) _shown = key;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task Key(string k)
+    {
+        if (k == "click")
+        {
+            if (_menu != null) CloseMenu();
+            return;
+        }
+        if (k == "escape")
+        {
+            if (_menu != null) CloseMenu();
+            else if (_dialogs.Count > 0) CloseDialog(_dialogs[^1], null);
+            return;
+        }
+        if (_dialogs.Count > 0) return;
+        CloseMenu();
+        if (k.StartsWith("alt+") && k.Length == 5 && char.IsDigit(k[4]))
+        {
+            int i = k[4] - '1';
+            if (i >= 0 && i < Keys.Length) ShowPage(Keys[i]);
+            return;
+        }
+        if (Current == null || !_pages.TryGetValue(Current, out var p)) return;
+        switch (k)
+        {
+            case "alt+n": p.CtrlN(); break;
+            case "ctrl+f": p.FocusSearch(); break;
+            case "ctrl+s": p.CtrlS(); break;
+        }
+        p.Refresh();
+    }
+
+    // ─────────────────────────── contadores do menu
+    string Badge(string k)
+    {
+        var d = Store.Data;
+        int Count(JsonArray pages) => pages.Objs().Sum(p => 1 + Count(p.A("children")));
+        return k switch
+        {
+            "cadernos" => d.A("notebooks").Objs().Sum(nb => Count(nb.A("pages"))).ToString(),
+            "questoes" => d.A("questions").Count.ToString(),
+            "flashcards" => d.A("decks").Objs().Sum(x => x.A("cards").Count).ToString(),
+            "estagio" => d.O("estagio").A("cases").Objs().Count(c => c.S("status") != "entregue").ToString(),
+            "tcc" => (d["tcc"] is JsonObject tcc ? tcc.A("cits").Count : 0).ToString(),
+            _ => "",
+        };
+    }
+
+    (string title, string[] rows) Counts()
+    {
+        var d = Store.Data;
+        int Count(JsonArray pages) => pages.Objs().Sum(p => 1 + Count(p.A("children")));
+        int pages = d.A("notebooks").Objs().Sum(nb => Count(nb.A("pages")));
+        var qs = d.A("questions").Objs().ToList();
+        int due = d.A("decks").Objs().SelectMany(x => x.A("cards").Objs()).Count(FlashPage.IsDue);
+        int ok = qs.Count(q => q.S("resultado") == "ok"), err = qs.Count(q => q.S("resultado") == "err");
+        string[] dias = { "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo" };
+        var t = Today();
+        int pend = d.O("estagio").A("cases").Objs().Count(c => c.S("status") != "entregue");
+        return ($"Hoje · {dias[Wd(t)]}, {t:dd/MM}", new[]
+        {
+            $"{due} cartão(ões) para revisar",
+            $"{(ok + err > 0 ? Math.Round(100.0 * ok / (ok + err)) : 0)}% de acerto nas questões",
+            $"{pages} páginas em {d.A("notebooks").Count} cadernos",
+            $"{pend} peça(s) no estágio",
+        });
+    }
+
+    public void RefreshCounts() => InvokeAsync(StateHasChanged);
+
+    // ─────────────────────────── aviso rápido
+    string _toast = "";
+    bool _toastOn;
+    CancellationTokenSource _toastCts;
+
+    [JSInvokable]
+    public void Toast(string text)
+    {
+        _toast = "✓   " + text;
+        _toastOn = true;
+        _toastCts?.Cancel();
+        _toastCts = new CancellationTokenSource();
+        var tk = _toastCts.Token;
+        _ = HideToast(tk);
+        InvokeAsync(StateHasChanged);
+    }
+
+    async Task HideToast(CancellationToken tk)
+    {
+        try { await Task.Delay(1900, tk); }
+        catch { return; }
+        _toastOn = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ─────────────────────────── menus
+    MenuState _menu;
+    int _menuSeq;
+
+    public void ShowMenu(List<MItem> items, double x, double y)
+    {
+        _menu = new MenuState { Items = items, X = x, Y = y, Key = ++_menuSeq };
+        _ = UpdateVw();
+        StateHasChanged();
+    }
+
+    async Task UpdateVw()
+    {
+        try
+        {
+            var r = await Js.Runtime.InvokeAsync<Rect>("LS.viewport");
+            _vw = r.W;
+        }
+        catch { }
+    }
+
+    public void ShowMenu(List<MItem> items, MouseEventArgs e) => ShowMenu(items, e.ClientX, e.ClientY);
+
+    public async Task ShowMenuAt(List<MItem> items, ElementReference anchor)
+    {
+        var r = await Js.RectOf(anchor);
+        if (r == null) return;
+        ShowMenu(items, r.X, r.Y + r.H + 4);
+    }
+
+    public void CloseMenu()
+    {
+        if (_menu == null) return;
+        _menu = null;
+        StateHasChanged();
+    }
+
+    async Task RunItem(MItem it)
+    {
+        if (!it.Enabled || it.Action == null) return;
+        _menu = null;
+        StateHasChanged();
+        try { await it.Action(); }
+        finally { RefreshAll(); }
+    }
+
+    void CloseFromContent()
+    {
+        _menu = null;
+        RefreshAll();
+    }
+
+    /// <summary>Redesenha todas as abas (depois de ações vindas de menus e atalhos).</summary>
+    public void RefreshAll()
+    {
+        foreach (var p in _pages.Values) p.Refresh();
+        InvokeAsync(StateHasChanged);
+    }
+
+    RenderFragment RenderItems(List<MItem> items) => __builder =>
+    {
+        foreach (var it in items)
+        {
+            var item = it;
+            if (item.Separator)
+            {
+                <div class="msep"></div>
+                continue;
+            }
+            if (item.Content != null)
+            {
+                @item.Content(CloseFromContent)
+                continue;
+            }
+            <div class="mi @(item.Enabled ? "" : "dis") @(item.Children != null ? "has-sub" : "")" @onclick="() => RunItem(item)" @onclick:stopPropagation="true">
+                <span class="mi-ic">
+                    @if (item.IconFragment != null)
+                    {
+                        @item.IconFragment
+                    }
+                    else if (item.Icon != null)
+                    {
+                        <Ic N="@item.Icon" C="@(item.IconColor ?? T["text2"])" S="16" />
+                    }
+                </span>
+                <span class="mi-tx" style="@(item.IconColor == T["danger"] ? "color:" + T["danger"] : "")">@item.Text</span>
+                @if (item.Children != null)
+                {
+                    <Ic N="chevron-right" C="@T["faint"]" S="14" />
+                    <div class="menu sub">@RenderItems(item.Children)</div>
+                }
+            </div>
+        }
+    };
+
+    // ─────────────────────────── diálogos
+    readonly List<DialogState> _dialogs = new();
+
+    public Task<string> OpenDialog(DialogState d)
+    {
+        d.Tone ??= d.Danger ? T["danger"] : T["accent"];
+        _menu = null;
+        _dialogs.Add(d);
+        InvokeAsync(StateHasChanged);
+        return d.Tcs.Task;
+    }
+
+    public void CloseDialog(DialogState d, string result)
+    {
+        if (!_dialogs.Remove(d)) return;
+        d.Tcs.TrySetResult(result);
+        StateHasChanged();
+    }
+
+    void AcceptDialog(DialogState d) => CloseDialog(d, d.Value != null ? (d.Value ?? "").Trim() : "ok");
+
+    void DlgKey(DialogState d, KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && (e.CtrlKey || (!d.Multiline && d.Value != null))) AcceptDialog(d);
+        else if (e.Key == "Escape") CloseDialog(d, null);
+    }
+
+    public Task<string> Ask(string title, string text = "", string value = "", bool multiline = false, string icon = "pencil-outline",
+        string ok = "Salvar", string placeholder = "") =>
+        OpenDialog(new DialogState
+        {
+            Title = title, Text = text, Value = value ?? "", Multiline = multiline, Icon = icon, Ok = ok, Placeholder = placeholder,
+        });
+
+    public async Task<bool> Confirm(string title, string text, string ok = "Excluir", bool danger = true, string icon = "delete-outline") =>
+        await OpenDialog(new DialogState { Title = title, Text = text, Ok = ok, Danger = danger, Icon = icon }) != null;
+
+    public Task Info(string title, string text, string icon = "information-outline") =>
+        OpenDialog(new DialogState { Title = title, Text = text, Icon = icon, Ok = "Entendi", Cancel = null });
+
+    // ─────────────────────────── meus dados (backup)
+    async Task DataMenu()
+    {
+        var items = new List<MItem>
+        {
+            MItem.Async("download-outline", "Exportar backup (.zip)", ExportBackup),
+            MItem.Async("upload-outline", "Importar backup ou estudos.json…", async () => await Js.Click(_file.Element!.Value)),
+        };
+        try
+        {
+            var idx = (JsonNode.Parse(await Js.KvGet("backups") ?? "[]") as JsonArray ?? new JsonArray()).Strs();
+            if (idx.Count > 0)
+            {
+                var sub = new List<MItem>();
+                foreach (var k in Enumerable.Reverse(idx))
+                {
+                    var kk = k;
+                    var d = U.FmtBr(k.Replace("backup-", ""));
+                    sub.Add(MItem.Async("history", $"Cópia de {d}", () => RestoreAuto(kk, d)));
+                }
+                items.Add(MItem.Sub("backup-restore", "Restaurar cópia automática", sub));
+            }
+        }
+        catch { }
+        items.Add(MItem.Sep());
+        items.Add(MItem.Async("information-outline", "Onde ficam meus dados?", () => Info("Seus dados",
+            "Tudo o que você cria fica salvo neste navegador, neste computador — nada é enviado para servidores.\n\n"
+            + "Para levar seus estudos para outro computador ou navegador, use “Exportar backup” e depois “Importar” no outro lugar. "
+            + "Também é possível importar o estudos.json (ou a pasta dados_estudos compactada em .zip) da versão para Windows.\n\n"
+            + "Uma cópia automática é guardada por dia (as 15 mais recentes).", "database-outline")));
+        await ShowMenuAt(items, _dataBtn);
+    }
+
+    async Task ExportBackup()
+    {
+        await Flush();
+        using var ms = new MemoryStream();
+        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
+        {
+            var e = zip.CreateEntry("dados_estudos/estudos.json", CompressionLevel.Optimal);
+            using (var w = new StreamWriter(e.Open(), new System.Text.UTF8Encoding(false)))
+                await w.WriteAsync(Store.Data.ToJsonString(J.Opts));
+            foreach (var name in await Js.ImgNames())
+            {
+                var bytes = await Js.ImgBytes(name);
+                if (bytes == null) continue;
+                var ie = zip.CreateEntry("dados_estudos/imagens/" + name, CompressionLevel.NoCompression);
+                using var s = ie.Open();
+                await s.WriteAsync(bytes);
+            }
+        }
+        await Js.DownloadBytes($"lawservice-backup-{IsoDate(Today())}.zip", "application/zip", ms.ToArray());
+        Toast("Backup exportado");
+    }
+
+    async Task Import(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            var f = e.File;
+            using var ms = new MemoryStream();
+            await f.OpenReadStream(1024L * 1024 * 1024).CopyToAsync(ms);
+            ms.Position = 0;
+            string json = null;
+            var imgs = new List<(string, byte[])>();
+            if (f.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+            {
+                using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
+                var je = zip.Entries.Where(x => x.Name.Equals("estudos.json", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(x => x.FullName.Length).FirstOrDefault();
+                if (je != null)
+                {
+                    using var r = new StreamReader(je.Open());
+                    json = await r.ReadToEndAsync();
+                }
+                foreach (var ie in zip.Entries)
+                {
+                    var path = ie.FullName.Replace('\\', '/');
+                    if (!path.Contains("imagens/") || !Store.IMG_EXT.Contains(Path.GetExtension(ie.Name))) continue;
+                    using var s = ie.Open();
+                    using var b = new MemoryStream();
+                    await s.CopyToAsync(b);
+                    imgs.Add((ie.Name, b.ToArray()));
+                }
+            }
+            else
+            {
+                using var r = new StreamReader(ms);
+                json = await r.ReadToEndAsync();
+            }
+            if (json == null || JsonNode.Parse(json) is not JsonObject data)
+            {
+                await Info("Arquivo não reconhecido", "Escolha um backup .zip exportado pelo LawService, a pasta dados_estudos compactada "
+                                                      + "em .zip ou o arquivo estudos.json.", "alert-outline");
+                return;
+            }
+            if (!await Confirm("Importar dados?", "Os dados atuais deste navegador serão substituídos pelos do arquivo"
+                                                  + (imgs.Count > 0 ? $" ({imgs.Count} imagem(ns))" : "") + ". Deseja continuar?",
+                    ok: "Importar", danger: false, icon: "upload-outline"))
+                return;
+            foreach (var (n, b) in imgs) await Js.ImgPut(n, b);
+            Store.Data = Store.Normalize(data);
+            Store.FillPlain(Store.Data);
+            await PersistNow();
+            await Js.Reload();
+        }
+        catch (Exception exc)
+        {
+            await Info("Não foi possível importar", exc.Message, "alert-outline");
+        }
+    }
+
+    async Task RestoreAuto(string key, string label)
+    {
+        if (!await Confirm("Restaurar cópia?", $"Os dados atuais serão substituídos pela cópia automática de {label}.", ok: "Restaurar",
+                danger: false, icon: "backup-restore"))
+            return;
+        var json = await Js.KvGet(key);
+        if (string.IsNullOrEmpty(json) || JsonNode.Parse(json) is not JsonObject data) return;
+        Store.Data = Store.Normalize(data);
+        await PersistNow();
+        await Js.Reload();
+    }
+
+    public void Dispose() => _ref?.Dispose();
+}

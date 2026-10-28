@@ -1,0 +1,16 @@
+<div class="empty">
+    <div class="empty-badge"><Ic N="@Icon" C="@T["accent"]" S="36" /></div>
+    <div class="h2 center">@Title</div>
+    <div class="muted center" style="max-width:520px">@Text</div>
+    @if (BtnText != null)
+    {
+        <button class="btn primary" style="margin-top:10px" @onclick="OnClick"><Ic N="plus" C="#fff" S="16" /><span>@BtnText</span></button>
+    }
+</div>
+@code {
+    [Parameter] public string Icon { get; set; }
+    [Parameter] public string Title { get; set; }
+    [Parameter] public string Text { get; set; }
+    [Parameter] public string BtnText { get; set; }
+    [Parameter] public EventCallback OnClick { get; set; }
+}

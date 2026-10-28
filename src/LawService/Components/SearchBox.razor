@@ -1,0 +1,38 @@
+@inject Js Js
+<div class="search @Class">
+    <Ic N="magnify" C="@T["faint"]" S="16" />
+    <input @ref="_input" placeholder="@Placeholder" value="@Value" @oninput="OnInput" @onkeydown="OnKey" spellcheck="false" />
+    @if (!string.IsNullOrEmpty(Value))
+    {
+        <button class="tool xs" title="Limpar" @onclick="Clear"><Ic N="close-circle" C="@T["faint"]" S="14" /></button>
+    }
+</div>
+@code {
+    ElementReference _input;
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Placeholder { get; set; } = "Buscar…";
+    [Parameter] public string Class { get; set; }
+
+    public string Text => Value ?? "";
+
+    async Task OnInput(ChangeEventArgs e)
+    {
+        Value = e.Value?.ToString() ?? "";
+        await ValueChanged.InvokeAsync(Value);
+    }
+
+    async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && !string.IsNullOrEmpty(Value)) await Clear();
+    }
+
+    async Task Clear()
+    {
+        Value = "";
+        await ValueChanged.InvokeAsync("");
+        await Js.Focus(_input);
+    }
+
+    public async Task FocusAll() => await Js.Focus(_input, true);
+}

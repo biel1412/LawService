@@ -1,0 +1,886 @@
+@inherits PageBase
+@*  CADERNOS — páginas em árvore com editor estilo OneNote. *@
+
+<div class="side" style="width:292px">
+    <div class="col side-in" style="gap:12px;padding:20px 10px 14px 16px">
+        <div class="panel-head">
+            <div class="h1">Cadernos</div>
+            <span class="sp"></span>
+            <button class="btn soft" title="Novo caderno" @onclick="NewNotebook"><Ic N="plus" C="@T["accent"]" S="16" /><span>Caderno</span></button>
+        </div>
+        <SearchBox @ref="_search" Placeholder="Buscar nas páginas…" Value="@_q" ValueChanged="v => { _q = v; }" />
+        <div class="tree scroll grow @(_dragId != null ? "dragging" : "")" tabindex="0" @onkeydown="TreeKey"
+             @oncontextmenu="TreeMenuEmpty" @oncontextmenu:preventDefault="true">
+            @{
+                BuildIndex();
+            }
+            @foreach (var nb in Nbs.Objs())
+            {
+                if (_qq.Length > 0 && !nb.A("pages").Objs().Any(Visible) && !nb.S("name").ToLowerInvariant().Contains(_qq)) continue;
+                @Node(nb, "nb", Nbs, nb, 0)
+            }
+        </div>
+        <div class="faint center">Arraste para reorganizar · F2 renomeia</div>
+        <div class="row" style="gap:8px">
+            <button class="btn grow" @onclick="() => NewPage(false)"><Ic N="file-plus-outline" S="16" /><span>Página</span></button>
+            <button class="btn grow" @onclick="() => NewPage(true)"><Ic N="file-tree-outline" S="16" /><span>Subpágina</span></button>
+        </div>
+    </div>
+</div>
+
+<div class="main">
+    @* ─────────────── barra de formatação *@
+    <div class="toolbar">
+        <div class="tflow" style="padding:10px 8px 2px 16px">
+            <div class="tgroup">
+                <button class="tool" title="Desfazer (Ctrl+Z)" disabled="@(!St.B("canUndo"))" @onclick='() => Cmd("undo")'><Ic N="undo" /></button>
+                <button class="tool" title="Refazer (Ctrl+Y)" disabled="@(!St.B("canRedo"))" @onclick='() => Cmd("redo")'><Ic N="redo" /></button>
+            </div>
+            <div class="tgroup">
+                <select class="field sm" style="width:128px" value="@StyleIdx" @onchange="e => SetBlockStyle(e.Value?.ToString())">
+                    <option value="normal">Texto normal</option>
+                    <option value="h1">Título 1</option>
+                    <option value="h2">Título 2</option>
+                    <option value="h3">Título 3</option>
+                    <option value="quote">Citação</option>
+                </select>
+                <select class="field sm" style="width:150px" value="@CurFont" @onchange="e => SetFamily(e.Value?.ToString())">
+                    @if (!Fonts.Contains(CurFont, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <option value="@CurFont">@CurFont</option>
+                    }
+                    @foreach (var f in Fonts)
+                    {
+                        <option value="@f" style="font-family:'@f'">@f</option>
+                    }
+                </select>
+                <input class="field sm" style="width:66px" list="ns-sizes" value="@CurSize" @onchange="e => SetSize(e.Value?.ToString())" title="Tamanho da fonte" />
+                <datalist id="ns-sizes">
+                    @foreach (var s in new[] { 8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64 })
+                    {
+                        <option value="@s"></option>
+                    }
+                </datalist>
+            </div>
+            <div class="tgroup">
+                <button class="tool @On("bold")" title="Negrito (Ctrl+B)" @onclick='() => ToggleFmt("b")'><Ic N="format-bold" /></button>
+                <button class="tool @On("italic")" title="Itálico (Ctrl+I)" @onclick='() => ToggleFmt("i")'><Ic N="format-italic" /></button>
+                <button class="tool @On("underline")" title="Sublinhado (Ctrl+U)" @onclick='() => ToggleFmt("u")'><Ic N="format-underline" /></button>
+                <button class="tool @On("strike")" title="Tachado" @onclick='() => ToggleFmt("s")'><Ic N="format-strikethrough-variant" /></button>
+                <button class="tool @On("code")" title="Código" @onclick='() => ToggleFmt("code")'><Ic N="code-tags" /></button>
+            </div>
+            <div class="tgroup">
+                <span class="csplit" title="Cor do texto">
+                    <button class="tool" @onclick="() => SetColor(_textColor)"><span class="cbar"><Ic N="format-color-text" S="16" /><i style="background:@_textColor"></i></span></button>
+                    <button class="tool arrow" @ref="_fgArrow" @onclick="FgMenu"><Ic N="chevron-down" C="@T["muted"]" S="11" /></button>
+                </span>
+                <span class="csplit" title="Marca-texto">
+                    <button class="tool" @onclick="() => SetHighlight(_hlColor)"><span class="cbar"><Ic N="format-color-highlight" S="16" /><i style="background:@_hlColor"></i></span></button>
+                    <button class="tool arrow" @ref="_hlArrow" @onclick="HlMenu"><Ic N="chevron-down" C="@T["muted"]" S="11" /></button>
+                </span>
+            </div>
+            <div class="tgroup">
+                <button class="tool @(St.S("list") == "bullet" ? "on" : "")" title="Lista com marcadores  ( - espaço )" @onclick='() => ToggleList("bullet")'><Ic N="format-list-bulleted" /></button>
+                <button class="tool @(St.S("list") == "number" ? "on" : "")" title="Lista numerada  ( 1. espaço )" @onclick='() => ToggleList("number")'><Ic N="format-list-numbered" /></button>
+                <button class="tool @(St.S("list") == "check" ? "on" : "")" title="Lista de tarefas  ( [] espaço )" @onclick='() => ToggleList("check")'><Ic N="format-list-checks" /></button>
+                <button class="tool" title="Diminuir recuo (Shift+Tab)" @onclick="() => Indent(-1)"><Ic N="format-indent-decrease" /></button>
+                <button class="tool" title="Aumentar recuo (Tab)" @onclick="() => Indent(1)"><Ic N="format-indent-increase" /></button>
+            </div>
+            <div class="tgroup">
+                @foreach (var (key, name, tip) in Aligns)
+                {
+                    var k = key;
+                    <button class="tool @(St.S("align", "left") == k && _current != null ? "on" : "")" title="@tip" @onclick="() => SetAlign(k)"><Ic N="@name" /></button>
+                }
+            </div>
+            <div class="tgroup">
+                <span class="csplit" title="Bloco de destaque colorido">
+                    <button class="tool" @onclick="() => SetCallout(_calloutColor)"><span class="cbar"><Ic N="card-text-outline" S="16" /><i style="background:@_calloutColor"></i></span></button>
+                    <button class="tool arrow" @ref="_coArrow" @onclick="CalloutMenu"><Ic N="chevron-down" C="@T["muted"]" S="11" /></button>
+                </span>
+                <button class="tool" title="Inserir imagem (ou cole com Ctrl+V)" @onclick="InsertImageDialog"><Ic N="image-plus-outline" /></button>
+                <input type="file" accept="image/*" multiple style="display:none" @ref="_imgInput" @onchange="ImagesChosen" />
+                <button class="tool" title="Inserir tabela" @ref="_tableBtn" @onclick="TableMenu"><Ic N="table" /></button>
+                <button class="tool" title="Linha divisória" @onclick="InsertHr"><Ic N="minus" /></button>
+                <button class="tool" title="Limpar formatação" @onclick="ClearFormat"><Ic N="format-clear" /></button>
+            </div>
+        </div>
+    </div>
+
+    @* ─────────────── papel *@
+    <div class="stack grow">
+        <div class="paper-view" style="display:@(_current != null ? "flex" : "none")">
+            <div class="paper-col">
+                <div class="paper grow">
+                    <div class="paper-strip" style="background:@Grad(HeadColor, Mix(HeadColor, "#ffffff", .45), "90deg")"></div>
+                    <div class="paper-head">
+                        <div class="crumb ell" style="color:@Mix(HeadColor, "#55596a", .3)">@Crumb</div>
+                        <input class="title-input" placeholder="Título da página" value="@_titleText" @ref="_titleEl"
+                               @oninput="OnTitle" @onkeydown="TitleKey" spellcheck="false" />
+                        <div class="faint" style="color:#8a8f9e">@_meta</div>
+                        <div style="height:1px;background:#e6e3e5;margin-top:10px"></div>
+                    </div>
+                    <div class="paper-ed" style="padding:8px 14px 10px 46px">
+                        <RichEditor @ref="_editor" Mode="notes" OnChanged="OnTextChanged" OnStateChanged="StateHasChanged" OnContext="EditorMenu" />
+                    </div>
+                </div>
+                <div class="row" style="gap:6px;padding:0 6px">
+                    @if (_saved)
+                    {
+                        <Ic N="check-circle" C="@T["success"]" S="14" /><span class="faint">Tudo salvo</span>
+                    }
+                    else
+                    {
+                        <Ic N="circle-medium" C="@T["warn"]" S="14" /><span class="faint">Editando…</span>
+                    }
+                    <span class="sp"></span>
+                    <span class="faint">@WordsText</span>
+                </div>
+            </div>
+        </div>
+        @if (_current == null)
+        {
+            <EmptyState Icon="book-open-page-variant-outline" Title="@_emptyTitle" Text="@_emptyText" BtnText="Nova página" OnClick="() => NewPage(false)" />
+        }
+    </div>
+</div>
+
+@code {
+    protected override string PageKey => "cadernos";
+
+    class Info
+    {
+        public string Kind;
+        public JsonObject Obj, Nb, Parent;
+        public JsonArray List;
+    }
+
+    static readonly string[] Fonts =
+    {
+        "Arial", "Book Antiqua", "Calibri", "Cambria", "Candara", "Comic Sans MS", "Consolas", "Constantia", "Corbel", "Courier New",
+        "Garamond", "Georgia", "Impact", "Lucida Console", "Lucida Sans Unicode", "Palatino Linotype", "Segoe UI", "Tahoma",
+        "Times New Roman", "Trebuchet MS", "Verdana",
+    };
+
+    static readonly (string, string, string)[] Aligns =
+    {
+        ("left", "format-align-left", "Alinhar à esquerda"), ("center", "format-align-center", "Centralizar"),
+        ("right", "format-align-right", "Alinhar à direita"), ("justify", "format-align-justify", "Justificar"),
+    };
+
+    JsonArray Nbs => Store.Data.A("notebooks");
+    JsonObject _current;
+    string _selId, _editId, _editText, _dragId, _dropId;
+    int _dropPos;
+    Dictionary<string, Info> _index = new();
+    string _textColor = "#e03131", _hlColor = "#fff3a3", _calloutColor = CALLOUTS[0];
+    Once _saveTimer;
+    bool _loading, _saved = true;
+    string _q = "", _qq = "", _titleText = "", _meta = "", _emptyTitle = "Nenhuma página aberta", _emptyText = "Escolha uma página na lateral ou crie uma nova.";
+
+    SearchBox _search;
+    RichEditor _editor;
+    ElementReference _titleEl, _fgArrow, _hlArrow, _coArrow, _tableBtn, _imgInput, _editInput;
+
+    JsonObject St => _current != null ? _editor?.State ?? new JsonObject() : new JsonObject();
+    string On(string k) => St.B(k) ? "on" : "";
+    string StyleIdx => St.S("block", "normal") is var b && b.Length > 0 ? b : "normal";
+    string CurFont => St.S("font", "Segoe UI") is var f && f.Length > 0 ? f : "Segoe UI";
+    string CurSize => Fmt(St.D("size", BASE_PT), "0.#");
+    string WordsText
+    {
+        get
+        {
+            int n = Words(_editor?.Plain ?? "");
+            return $"{n} palavra{(n != 1 ? "s" : "")}";
+        }
+    }
+
+    protected override void Init()
+    {
+        _saveTimer = new Once(700, () => InvokeAsync(() => { SaveCurrent(); StateHasChanged(); }));
+        BuildIndex();
+        var first = FirstPage();
+        if (first != null) Post(() => Select(first.S("id")));
+    }
+
+    JsonObject FirstPage() => Nbs.Objs().Select(nb => nb.A("pages").Objs().FirstOrDefault()).FirstOrDefault(p => p != null);
+
+    // ─────────────────────────── árvore
+    void BuildIndex()
+    {
+        _qq = (_q ?? "").Trim().ToLowerInvariant();
+        _index = new Dictionary<string, Info>();
+        void Walk(JsonArray pages, JsonObject nb, JsonObject parent)
+        {
+            foreach (var p in pages.Objs())
+            {
+                _index[p.S("id")] = new Info { Kind = "pg", Obj = p, List = pages, Nb = nb, Parent = parent };
+                Walk(p.A("children"), nb, p);
+            }
+        }
+        foreach (var nb in Nbs.Objs())
+        {
+            _index[nb.S("id")] = new Info { Kind = "nb", Obj = nb, List = Nbs, Nb = nb };
+            Walk(nb.A("pages"), nb, nb);
+        }
+    }
+
+    bool Visible(JsonObject p)
+    {
+        if (_qq.Length == 0) return true;
+        if (p.S("title").ToLowerInvariant().Contains(_qq) || p.S("plain").ToLowerInvariant().Contains(_qq)) return true;
+        return p.A("children").Objs().Any(Visible);
+    }
+
+    Info Sel() => _selId != null && _index.TryGetValue(_selId, out var i) ? i : null;
+
+    RenderFragment Node(JsonObject obj, string kind, JsonArray list, JsonObject nb, int depth) => __builder =>
+    {
+        var id = obj.S("id");
+        var kids = kind == "nb" ? obj.A("pages") : obj.A("children");
+        var hasKids = kids.Objs().Any(Visible);
+        var open = _qq.Length > 0 || !obj.B("collapsed");
+        var color = obj.S("color", null);
+        var text = kind == "nb" ? obj.S("name") : (string.IsNullOrEmpty(obj.S("title")) ? "Sem título" : obj.S("title"));
+        var drop = _dropId == id ? (_dropPos < 0 ? "drop-before" : _dropPos > 0 ? "drop-after" : "drop-in") : "";
+        <div class="tnode">
+            <div class="trow @(_selId == id ? "sel" : "") @drop" draggable="@(_editId == id ? "false" : "true")"
+                 @onclick="() => Click(id)" @ondblclick="() => StartEdit(id)"
+                 @oncontextmenu="e => TreeMenu(id, e)" @oncontextmenu:preventDefault="true" @oncontextmenu:stopPropagation="true"
+                 @ondragstart="() => DragStart(id)" @ondragend="DragEnd"
+                 @ondragover="e => DragOver(id, e)" @ondragover:preventDefault="true" @ondrop="() => Drop(id)" @ondrop:preventDefault="true">
+                <span class="texp @(hasKids ? "" : "hide")" @onclick="() => Toggle(id)" @onclick:stopPropagation="true">
+                    <Ic N="@(open ? "chevron-down" : "chevron-right")" C="@T["faint"]" S="14" />
+                </span>
+                @if (kind == "nb")
+                {
+                    <span class="nbdot" style="background:@Grad(Mix(obj.S("color"), "#ffffff", 0.12), Mix(obj.S("color"), "#000000", 0.12))"><Ic N="notebook" C="#fff" S="11" /></span>
+                }
+                else if (!string.IsNullOrEmpty(color))
+                {
+                    <span class="pgdot"><i style="background:@color"></i></span>
+                }
+                else
+                {
+                    <span class="pgdot"><i class="hollow"></i></span>
+                }
+                @if (_editId == id)
+                {
+                    <input class="tedit" @ref="_editInput" value="@_editText" @oninput="e => _editText = e.Value?.ToString()"
+                           @onkeydown="EditKey" @onblur="() => FinishEdit(true)" @onclick:stopPropagation="true" />
+                }
+                else
+                {
+                    <span class="tlabel ell" style="@LabelStyle(kind, color)">@text</span>
+                }
+            </div>
+            @if (open && hasKids)
+            {
+                <div class="tchildren">
+                    @foreach (var p in kids.Objs())
+                    {
+                        if (!Visible(p)) continue;
+                        @Node(p, "pg", kids, nb, depth + 1)
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    static string LabelStyle(string kind, string color) =>
+        (kind == "nb" ? "font-weight:700;" : "") + (kind == "pg" && !string.IsNullOrEmpty(color) ? "color:" + Mix(color, T["text"], 0.35) : "");
+
+    void Click(string id)
+    {
+        if (_editId != null) return;
+        _selId = id;
+        OnSelect();
+    }
+
+    void Toggle(string id)
+    {
+        if (!_index.TryGetValue(id, out var info)) return;
+        info.Obj["collapsed"] = !info.Obj.B("collapsed");
+        Win.Save();
+    }
+
+    void TreeKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "F2" && _selId != null) StartEdit(_selId);
+    }
+
+    // ─────────────────────────── renomear no lugar
+    void StartEdit(string id)
+    {
+        if (!_index.TryGetValue(id, out var info)) return;
+        _selId = id;
+        _editId = id;
+        _editText = info.Kind == "nb" ? info.Obj.S("name") : info.Obj.S("title");
+        Post(() => Js.Focus(_editInput, true).AsTask());
+    }
+
+    void EditKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") FinishEdit(true);
+        else if (e.Key == "Escape") FinishEdit(false);
+    }
+
+    void FinishEdit(bool commit)
+    {
+        if (_editId == null) return;
+        var id = _editId;
+        _editId = null;
+        if (!commit || !_index.TryGetValue(id, out var info)) return;
+        var name = (_editText ?? "").Trim();
+        if (name.Length == 0) return;
+        info.Obj[info.Kind == "nb" ? "name" : "title"] = name;
+        if (info.Obj == _current)
+        {
+            _titleText = name;
+        }
+        Win.Save();
+    }
+
+    // ─────────────────────────── arrastar e soltar
+    void DragStart(string id)
+    {
+        if (_editId != null) return;
+        _dragId = id;
+        _selId = id;
+    }
+
+    void DragEnd()
+    {
+        _dragId = null;
+        _dropId = null;
+    }
+
+    void DragOver(string id, DragEventArgs e)
+    {
+        if (_dragId == null) return;
+        int pos = e.OffsetY < 32 * 0.28 ? -1 : e.OffsetY > 32 * 0.72 ? 1 : 0;   // -1 acima, 0 sobre, 1 abaixo
+        if (Allowed(_dragId, id, pos))
+        {
+            _dropId = id;
+            _dropPos = pos;
+        }
+        else _dropId = null;
+    }
+
+    bool Allowed(string src, string target, int pos)
+    {
+        if (target == null || src == target) return false;
+        var si = _index.GetValueOrDefault(src);
+        var ti = _index.GetValueOrDefault(target);
+        if (si == null || ti == null) return false;
+        if (si.Kind == "nb") return ti.Kind == "nb" && pos != 0;
+        if (ti.Kind == "nb" && pos != 0) return false;
+        bool Contains(JsonObject p, JsonObject t) => p == t || p.A("children").Objs().Any(c => Contains(c, t));
+        return !Contains(si.Obj, ti.Obj);
+    }
+
+    void Drop(string id)
+    {
+        var src = _dragId;
+        var pos = _dropPos;
+        var ok = _dropId == id;
+        _dragId = null;
+        _dropId = null;
+        if (src == null || !ok || !Allowed(src, id, pos)) return;
+        if (_qq.Length > 0)
+        {
+            // com filtro, só a ordem visível muda: evita perder itens ocultos
+            Win.Toast("Limpe a busca para reorganizar");
+            return;
+        }
+        var si = _index[src];
+        var ti = _index[id];
+        J.Detach(si.Obj);
+        if (pos == 0)
+        {
+            var dest = ti.Kind == "nb" ? ti.Obj.A("pages") : ti.Obj.A("children");
+            dest.Push(si.Obj);
+            ti.Obj["collapsed"] = false;
+        }
+        else
+        {
+            var lst = ti.List;
+            var i = lst.IndexOf(ti.Obj);
+            lst.InsertAt(pos < 0 ? i : i + 1, si.Obj);
+        }
+        Win.Save();
+        BuildIndex();
+    }
+
+    // ─────────────────────────── menu da árvore
+    void TreeMenuEmpty(MouseEventArgs e)
+    {
+        Win.ShowMenu(new List<MItem> { MItem.Async("notebook-plus-outline", "Novo caderno", NewNotebook) }, e);
+    }
+
+    void TreeMenu(string id, MouseEventArgs e)
+    {
+        _selId = id;
+        var info = Sel();
+        if (info == null) return;
+        var m = new List<MItem> { MItem.Async("file-plus-outline", "Nova página", () => NewPage(false)) };
+        if (info.Kind == "pg")
+        {
+            m.Add(MItem.Async("file-tree-outline", "Nova subpágina", () => NewPage(true)));
+            m.Add(MItem.Of("content-copy", "Duplicar página", DuplicateSelected));
+        }
+        m.Add(MItem.Sep());
+        m.Add(MItem.Of("pencil-outline", "Renomear", () => StartEdit(id)));
+        bool isNb = info.Kind == "nb";
+        m.Add(Ui.ColorSub("Mudar cor", "palette-outline", new ColorSpec
+        {
+            Colors = PALETTE, Cols = 6, Title = isNb ? "Cor do caderno" : "Cor da página", AllowNone = !isNb, RecentKey = "entity",
+            Current = info.Obj.S("color", null), Picked = c => SetEntityColor(info, c),
+        }));
+        m.Add(MItem.Sep());
+        m.Add(MItem.Of("arrow-up", "Mover para cima", () => MoveSelected(-1)));
+        m.Add(MItem.Of("arrow-down", "Mover para baixo", () => MoveSelected(1)));
+        m.Add(MItem.Sep());
+        m.Add(MItem.Async("delete-outline", isNb ? "Excluir caderno" : "Excluir página", DeleteSelected, T["danger"]));
+        Win.ShowMenu(m, e);
+    }
+
+    // ─────────────────────────── operações
+    static JsonObject NewPageObj(string title = "Nova página", string color = null)
+    {
+        var n = NowIso();
+        return new JsonObject
+        {
+            ["id"] = Uid(), ["title"] = title, ["color"] = color, ["html"] = "", ["plain"] = "", ["children"] = new JsonArray(),
+            ["created"] = n, ["updated"] = n,
+        };
+    }
+
+    async Task NewNotebook()
+    {
+        var name = await Win.Ask("Novo caderno", "Dê um nome para o caderno.", "", icon: "notebook-plus-outline", ok: "Criar",
+            placeholder: "Ex.: Direito Administrativo");
+        if (string.IsNullOrEmpty(name)) return;
+        SaveCurrent();
+        var nb = new JsonObject
+        {
+            ["id"] = Uid(), ["name"] = name, ["color"] = PALETTE[Nbs.Count % PALETTE.Length], ["created"] = NowIso(),
+            ["pages"] = new JsonArray(),
+        };
+        Nbs.Add(nb);
+        var p = NewPageObj();
+        nb.A("pages").Add(p);
+        Win.Save();
+        BuildIndex();
+        await Select(p.S("id"));
+        FocusTitle();
+        Win.RefreshCounts();
+    }
+
+    void FocusTitle() => Post(() => Js.Focus(_titleEl, true).AsTask());
+
+    public async Task NewPage(bool sub = false)
+    {
+        if (Nbs.Count == 0)
+        {
+            await NewNotebook();
+            return;
+        }
+        BuildIndex();
+        var info = Sel() ?? _index.GetValueOrDefault(Nbs.Objs().First().S("id"));
+        if (info == null) return;
+        SaveCurrent();
+        var p = NewPageObj(sub && info.Kind == "pg" ? "Subpágina" : "Nova página");
+        if (info.Kind == "nb")
+        {
+            info.Obj.A("pages").Add(p);
+            info.Obj["collapsed"] = false;
+        }
+        else if (sub)
+        {
+            info.Obj.A("children").Add(p);
+            info.Obj["collapsed"] = false;
+        }
+        else
+        {
+            var lst = info.List;
+            lst.InsertAt(lst.IndexOf(info.Obj) + 1, p);
+        }
+        Win.Save();
+        BuildIndex();
+        await Select(p.S("id"));
+        FocusTitle();
+        Win.RefreshCounts();
+    }
+
+    void SetEntityColor(Info info, string c)
+    {
+        if (info.Kind == "nb" && c == null) return;
+        info.Obj["color"] = c;
+        Win.Save();
+    }
+
+    void MoveSelected(int d)
+    {
+        var info = Sel();
+        if (info == null) return;
+        var lst = info.List;
+        var obj = info.Obj;
+        int i = lst.IndexOf(obj);
+        if (i + d >= 0 && i + d < lst.Count)
+        {
+            J.Detach(obj);
+            lst.InsertAt(i + d, obj);
+            Win.Save();
+            BuildIndex();
+        }
+    }
+
+    void DuplicateSelected()
+    {
+        var info = Sel();
+        if (info == null || info.Kind != "pg") return;
+        SaveCurrent();
+        JsonObject Clone(JsonObject p)
+        {
+            var q = (JsonObject)p.DeepClone();
+            q["id"] = Uid();
+            q["children"] = new JsonArray(p.A("children").Objs().Select(c => (JsonNode)Clone(c)).ToArray());
+            return q;
+        }
+        var c = Clone(info.Obj);
+        c["title"] = (string.IsNullOrEmpty(c.S("title")) ? "Página" : c.S("title")) + " (cópia)";
+        info.List.InsertAt(info.List.IndexOf(info.Obj) + 1, c);
+        Win.Save();
+        BuildIndex();
+        _ = Select(c.S("id"));
+        Win.RefreshCounts();
+    }
+
+    async Task DeleteSelected()
+    {
+        var info = Sel();
+        if (info == null) return;
+        var obj = info.Obj;
+        string msg;
+        if (info.Kind == "nb")
+        {
+            int n = obj.A("pages").Count;
+            msg = $"O caderno “{obj.S("name")}” e suas {n} página(s) serão excluídos. Isso não pode ser desfeito.";
+        }
+        else
+        {
+            int n = obj.A("children").Count;
+            var t = string.IsNullOrEmpty(obj.S("title")) ? "Sem título" : obj.S("title");
+            msg = $"A página “{t}”" + (n > 0 ? $" e suas {n} subpágina(s) serão excluídas." : " será excluída.");
+        }
+        if (!await Win.Confirm("Excluir?", msg)) return;
+        bool Contains(JsonObject p, JsonObject target) => p == target || p.A("children").Objs().Any(c => Contains(c, target));
+        if (_current != null)
+        {
+            var pages = info.Kind == "nb" ? obj.A("pages").Objs().ToList() : new List<JsonObject> { obj };
+            if (pages.Any(p => Contains(p, _current)))
+            {
+                _saveTimer.Stop();
+                _current = null;
+            }
+        }
+        info.List.Remove(obj);
+        Win.Save();
+        _selId = null;
+        BuildIndex();
+        if (_current == null)
+        {
+            var first = FirstPage();
+            if (first != null) await Select(first.S("id"));
+            else ShowEmpty();
+        }
+        Win.Toast("Excluído");
+        Win.RefreshCounts();
+    }
+
+    string Crumb
+    {
+        get
+        {
+            if (_current == null || !_index.TryGetValue(_current.S("id"), out var info)) return "";
+            var names = new List<string>();
+            var par = info.Parent;
+            while (par != null)
+            {
+                if (!_index.TryGetValue(par.S("id"), out var pi)) break;
+                names.Add(pi.Kind == "nb" ? par.S("name") : (string.IsNullOrEmpty(par.S("title")) ? "Sem título" : par.S("title")));
+                par = pi.Parent;
+            }
+            names.Reverse();
+            return string.Join("  ›  ", names).ToUpper();
+        }
+    }
+
+    string HeadColor
+    {
+        get
+        {
+            var p = _current;
+            if (p == null) return T["accent"];
+            var nb = _index.GetValueOrDefault(p.S("id"))?.Nb;
+            return !string.IsNullOrEmpty(p.S("color")) ? p.S("color") : nb != null ? nb.S("color") : T["accent"];
+        }
+    }
+
+    public async Task Select(string id)
+    {
+        BuildIndex();
+        if (!_index.TryGetValue(id, out var info)) return;
+        // garante que os pais estejam abertos
+        var par = info.Parent;
+        while (par != null && _index.TryGetValue(par.S("id"), out var pi))
+        {
+            par["collapsed"] = false;
+            par = pi.Parent;
+        }
+        _selId = id;
+        await OnSelectAsync();
+        StateHasChanged();
+    }
+
+    void OnSelect() => _ = OnSelectAsync();
+
+    async Task OnSelectAsync()
+    {
+        var info = Sel();
+        if (info == null) return;
+        if (info.Kind == "pg")
+        {
+            if (info.Obj != _current) await OpenPage(info.Obj);
+        }
+        else
+        {
+            SaveCurrent();
+            _current = null;
+            ShowEmpty(info.Obj);
+        }
+    }
+
+    // ─────────────────────────── formatação (executada no editor)
+    bool Can => _current != null;
+
+    Task Cmd(string name, object arg = null) => Can ? _editor.Cmd(name, arg) : Task.CompletedTask;
+
+    Task ToggleFmt(string kind) => Cmd(kind switch { "b" => "bold", "i" => "italic", "u" => "underline", "s" => "strike", _ => "code" });
+    Task SetColor(string c) => Cmd("color", c);
+    Task SetHighlight(string c) => Cmd("highlight", c);
+    Task SetFamily(string f) => Cmd("font", f);
+
+    Task SetSize(string s)
+    {
+        if (!double.TryParse((s ?? "").Replace(",", "."), System.Globalization.NumberStyles.Any, Inv, out var v)) return Task.CompletedTask;
+        return v >= 4 && v <= 200 ? Cmd("size", v) : Task.CompletedTask;
+    }
+
+    Task ClearFormat() => Cmd("clear");
+    Task SetBlockStyle(string kind) => Cmd("block", kind);
+    Task SetAlign(string a) => Cmd("align", a);
+    Task ToggleList(string kind) => Cmd("list", kind);
+    Task Indent(int d) => Cmd("indent", d);
+    Task SetCallout(string color) => Cmd("callout", color);
+    Task InsertTable(int r, int c) => Cmd("table", new[] { r, c });
+    Task InsertHr() => Cmd("hr");
+
+    void PickTextColor(string c)
+    {
+        if (c != null) _textColor = c;
+        _ = SetColor(c);
+    }
+
+    void PickHlColor(string c)
+    {
+        if (c != null) _hlColor = c;
+        _ = SetHighlight(c);
+    }
+
+    void PickCallout(string c)
+    {
+        if (c != null) _calloutColor = c;
+        _ = SetCallout(c);
+    }
+
+    ColorSpec TextSpec => new() { Colors = TextPalette(), Cols = 10, Title = "Cor do texto", AllowNone = true, NoneLabel = "Automática", RecentKey = "text", Picked = PickTextColor };
+    ColorSpec HlSpec => new() { Colors = HIGHLIGHTS, Cols = 7, Title = "Marca-texto", AllowNone = true, NoneLabel = "Sem marca-texto", Shape = "square", RecentKey = "hl", Picked = PickHlColor };
+
+    Task FgMenu() => Win.ShowMenuAt(Ui.ColorMenu(TextSpec), _fgArrow);
+    Task HlMenu() => Win.ShowMenuAt(Ui.ColorMenu(HlSpec), _hlArrow);
+
+    Task CalloutMenu() => Win.ShowMenuAt(Ui.ColorMenu(new ColorSpec
+    {
+        Colors = CALLOUTS, Cols = 5, Title = "Bloco de destaque", AllowNone = true, NoneLabel = "Remover bloco", Shape = "square", RecentKey = "callout",
+        Picked = PickCallout,
+    }), _coArrow);
+
+    Task TableMenu()
+    {
+        var m = new List<MItem>();
+        foreach (var (r, c) in new[] { (2, 2), (3, 3), (4, 3), (5, 4) })
+            m.Add(MItem.Async(null, $"{r} linhas × {c} colunas", () => InsertTable(r, c)));
+        m.Add(MItem.Sep());
+        m.Add(MItem.Async(null, "Personalizada…", InsertTableCustom));
+        return Win.ShowMenuAt(m, _tableBtn);
+    }
+
+    async Task InsertTableCustom()
+    {
+        var v = await Win.Ask("Inserir tabela", "Informe linhas × colunas (ex.: 4x3).", "3x3", icon: "table", ok: "Inserir");
+        if (string.IsNullOrEmpty(v)) return;
+        var m = Regex.Match(v, @"\s*(\d+)\s*[x×*,; ]\s*(\d+)");
+        if (m.Success)
+            await InsertTable(Math.Min(60, Math.Max(1, int.Parse(m.Groups[1].Value))), Math.Min(12, Math.Max(1, int.Parse(m.Groups[2].Value))));
+    }
+
+    // ─────────────────────────── imagens
+    async Task InsertImageDialog()
+    {
+        if (!Can) return;
+        await Js.Click(_imgInput);
+    }
+
+    async Task ImagesChosen() => await _editor.InsertFiles(_imgInput);
+
+    void EditorMenu(JsonObject o)
+    {
+        if (!Can) return;
+        var m = new List<MItem>();
+        double x = o.D("x"), y = o.D("y");
+        if (o.S("kind") == "image")
+        {
+            foreach (var (txt, w) in new (string, object)[] { ("Pequena", 260), ("Média", 440), ("Grande", 680), ("Largura da página", "full"),
+                         ("Tamanho original", "orig") })
+                m.Add(MItem.Async("image-size-select-large", txt, () => _editor.Cmd("imgSize", w)));
+            m.Add(MItem.Sep());
+            m.Add(MItem.Async("magnify-plus-outline", "Aumentar 25%", () => _editor.Cmd("imgSize", 1.25)));
+            m.Add(MItem.Async("magnify-minus-outline", "Diminuir 20%", () => _editor.Cmd("imgSize", 0.8)));
+            m.Add(MItem.Sep());
+            var src = o.S("src");
+            m.Add(MItem.Async("open-in-new", "Abrir imagem", () => Js.OpenImage(src).AsTask()));
+            m.Add(MItem.Async("delete-outline", "Remover imagem", () => _editor.Cmd("imgRemove"), T["danger"]));
+            Win.ShowMenu(m, x, y);
+            return;
+        }
+        bool hasSel = o.B("hasSel");
+        m.Add(MItem.Async("undo", "Desfazer", () => _editor.Cmd("undo"), enabled: o.B("canUndo")));
+        m.Add(MItem.Async("redo", "Refazer", () => _editor.Cmd("redo"), enabled: o.B("canRedo")));
+        m.Add(MItem.Sep());
+        m.Add(MItem.Async("content-cut", "Recortar", () => _editor.Cmd("cut"), enabled: hasSel));
+        m.Add(MItem.Async("content-copy", "Copiar", () => _editor.Cmd("copy"), enabled: hasSel));
+        m.Add(MItem.Async("content-paste", "Colar", () => _editor.Paste(false)));
+        m.Add(MItem.Async("clipboard-text-outline", "Colar sem formatação", () => _editor.Paste(true)));
+        m.Add(MItem.Async("select-all", "Selecionar tudo", () => _editor.Cmd("selectAll")));
+        m.Add(MItem.Sep());
+        m.Add(Ui.ColorSub("Cor do texto", "format-color-text", TextSpec));
+        m.Add(Ui.ColorSub("Marca-texto", "format-color-highlight", HlSpec));
+        m.Add(MItem.Async("format-clear", "Limpar formatação", ClearFormat));
+        if (o.B("inTable"))
+        {
+            m.Add(MItem.Sep());
+            m.Add(MItem.Async("table-row-plus-after", "Inserir linha abaixo", () => _editor.Cmd("tableOp", "rowBelow")));
+            m.Add(MItem.Async("table-column-plus-after", "Inserir coluna à direita", () => _editor.Cmd("tableOp", "colRight")));
+            m.Add(MItem.Async("table-row-remove", "Remover linha", () => _editor.Cmd("tableOp", "rowRemove")));
+            m.Add(MItem.Async("table-column-remove", "Remover coluna", () => _editor.Cmd("tableOp", "colRemove")));
+        }
+        else if (o.B("inCallout"))
+        {
+            m.Add(MItem.Sep());
+            m.Add(MItem.Async("card-remove-outline", "Remover bloco de destaque", () => SetCallout(null)));
+        }
+        m.Add(MItem.Sep());
+        m.Add(MItem.Async("image-plus-outline", "Inserir imagem…", InsertImageDialog));
+        m.Add(MItem.Async("table", "Inserir tabela 3×3", () => InsertTable(3, 3)));
+        Win.ShowMenu(m, x, y);
+    }
+
+    // ─────────────────────────── página aberta
+    void ShowEmpty(JsonObject nb = null)
+    {
+        if (nb != null)
+        {
+            int n = nb.A("pages").Count;
+            _emptyTitle = nb.S("name");
+            _emptyText = $"{n} página(s) neste caderno. Escolha uma na lateral ou crie uma nova.";
+        }
+        else
+        {
+            _emptyTitle = "Nenhuma página aberta";
+            _emptyText = "Escolha uma página na lateral ou crie uma nova.";
+        }
+    }
+
+    static string MetaText(JsonObject p) => $"Criada em {FmtDt(p.S("created"))}   ·   editada {FmtDt(p.S("updated"), true)}";
+
+    async Task OpenPage(JsonObject page)
+    {
+        SaveCurrent();
+        _current = page;
+        _loading = true;
+        _titleText = page.S("title");
+        _meta = MetaText(page);
+        await _editor.Load(page.S("html"));
+        _loading = false;
+        _saved = true;
+    }
+
+    void OnTitle(ChangeEventArgs e)
+    {
+        if (_loading || _current == null) return;
+        _titleText = e.Value?.ToString() ?? "";
+        _current["title"] = _titleText;
+        Schedule();
+    }
+
+    async Task TitleKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await _editor.FocusEditor();
+    }
+
+    void OnTextChanged()
+    {
+        if (!_loading && _current != null) Schedule();
+    }
+
+    void Schedule()
+    {
+        _saved = false;
+        _saveTimer.Start();
+    }
+
+    public void SaveCurrent()
+    {
+        _saveTimer?.Stop();
+        var p = _current;
+        if (p == null || _loading) return;
+        bool changed = _editor.Modified || p.S("title") != _titleText;
+        if (changed)
+        {
+            p["html"] = _editor.FullHtml;
+            var plain = _editor.Plain ?? "";
+            p["plain"] = plain.Length > 20000 ? plain[..20000] : plain;
+            p["title"] = _titleText;
+            p["updated"] = NowIso();
+            _editor.Modified = false;
+            Win.Save();
+            _meta = MetaText(p);
+        }
+        else if (!_saved) Win.Save();
+        _saved = true;
+    }
+
+    public override void Flush() => SaveCurrent();
+
+    public override void FocusSearch() => _ = _search.FocusAll();
+    public override void CtrlN() => _ = NewPage(false);
+
+    public override void CtrlS()
+    {
+        SaveCurrent();
+        Win.Toast("Página salva");
+    }
+}

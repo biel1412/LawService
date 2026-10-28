@@ -1,0 +1,9 @@
+<i class="mdi mdi-@N @Class" style="color:@(C ?? "inherit");font-size:@(S)px;@Style" title="@Tip"></i>
+@code {
+    [Parameter] public string N { get; set; }
+    [Parameter] public string C { get; set; }
+    [Parameter] public double S { get; set; } = 18;
+    [Parameter] public string Class { get; set; }
+    [Parameter] public string Style { get; set; }
+    [Parameter] public string Tip { get; set; }
+}

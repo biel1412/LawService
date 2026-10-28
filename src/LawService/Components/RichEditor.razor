@@ -1,0 +1,118 @@
+@inject Js Js
+@implements IAsyncDisposable
+<iframe @ref="_frame" src="editor.html" class="edframe @Class" style="@Style" title="Editor de texto"></iframe>
+@code {
+    static int _n;
+    readonly string _id = "ed" + (++_n);
+    ElementReference _frame;
+    DotNetObjectReference<RichEditor> _ref;
+    bool _attached;
+    int _gen;
+    (string html, bool ro, string font)? _pending;
+
+    [Parameter] public string Mode { get; set; } = "notes";
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback OnStateChanged { get; set; }
+    [Parameter] public EventCallback<JsonObject> OnContext { get; set; }
+    [Parameter] public string Class { get; set; }
+    [Parameter] public string Style { get; set; }
+
+    public string Html { get; private set; } = "";
+    public string Plain { get; private set; } = "";
+    public bool Modified;
+    public JsonObject State = new();
+    public bool Ready { get; private set; }
+    public string Id => _id;
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first) return;
+        _ref = DotNetObjectReference.Create(this);
+        await Js.AttachEditor(_id, _frame, _ref);
+        _attached = true;
+        if (_pending is { } p)
+        {
+            _pending = null;
+            await Send(p.html, p.ro, p.font);
+        }
+    }
+
+    /// <summary>Carrega um novo conteúdo (página, peça, parte do TCC).</summary>
+    public async Task Load(string html, bool readOnly = false, string font = null)
+    {
+        _gen++;
+        Html = Web.BodyOf(html ?? "");
+        Plain = HtmlToPlain(Html);
+        Modified = false;
+        if (_attached) await Send(Html, readOnly, font);
+        else _pending = (Html, readOnly, font);
+    }
+
+    async Task Send(string html, bool ro, string font)
+    {
+        var opts = new Dictionary<string, object>
+        {
+            ["mode"] = Mode, ["readonly"] = ro, ["ui"] = UI_FONT, ["mono"] = MONO_FONT, ["serif"] = SERIF,
+        };
+        if (font != null) opts["font"] = font;
+        await Js.EdLoad(_id, _gen, html, opts);
+    }
+
+    /// <summary>HTML completo para salvar (mesmo formato aceito pela versão Python).</summary>
+    public string FullHtml => string.IsNullOrWhiteSpace(Plain) && !Regex.IsMatch(Html, "<(img|table|hr)", RegexOptions.IgnoreCase)
+        ? "" : "<html><body>" + Html + "</body></html>";
+
+    public async Task Cmd(string name, object arg = null)
+    {
+        if (!_attached) return;
+        await Js.EdCmd(_id, name, arg);
+    }
+
+    public async Task FocusEditor()
+    {
+        if (_attached) await Js.EdFocus(_id);
+    }
+
+    public async Task Paste(bool plain = false)
+    {
+        if (_attached) await Js.EdPaste(_id, plain);
+    }
+
+    public async Task InsertFiles(ElementReference input)
+    {
+        if (_attached) await Js.EdInsertFiles(_id, input);
+    }
+
+    [JSInvokable]
+    public void OnReady() => Ready = true;
+
+    [JSInvokable]
+    public async Task OnChange(int g, string html, string text)
+    {
+        if (g != _gen) return;
+        Html = html ?? "";
+        Plain = text ?? "";
+        Modified = true;
+        await OnChanged.InvokeAsync();
+    }
+
+    [JSInvokable]
+    public async Task OnState(string json)
+    {
+        if (JsonNode.Parse(json) is not JsonObject o || o.I("g") != _gen) return;
+        State = o;
+        await OnStateChanged.InvokeAsync();
+    }
+
+    [JSInvokable]
+    public async Task OnCtx(string json)
+    {
+        if (JsonNode.Parse(json) is JsonObject o) await OnContext.InvokeAsync(o);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await Js.Detach(_id); } catch { }
+        _ref?.Dispose();
+    }
+}

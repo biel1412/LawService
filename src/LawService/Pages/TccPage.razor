@@ -1,0 +1,999 @@
+@inherits PageBase
+@using static LawService.Abnt
+@*  TCC — partes do trabalho, citações, referências ABNT e exportação. *@
+
+@* ─────────────── lateral (partes) *@
+<div class="side" style="width:290px">
+    <div class="col side-in" style="gap:12px;padding:20px 12px 12px 16px">
+        <div class="panel-head">
+            <div class="h1">TCC</div>
+            <span class="sp"></span>
+            <button class="btn soft" title="Nova parte" @onclick="NewPart"><Ic N="plus" C="@T["accent"]" S="16" /><span>Parte</span></button>
+        </div>
+        @{
+            int total = Parts.Objs().Sum(PartWords);
+            int meta = M.I("meta_palavras");
+            int prontas = Parts.Objs().Count(p => p.S("status") == "pronto");
+            int nRefs = Cits.Objs().Select(FonteKey).Distinct().Count();
+        }
+        <div class="card row" style="gap:12px;padding:10px 12px">
+            <Ring Size="56" Value="@(meta > 0 ? (double)total / meta : 0)" />
+            <div class="col grow" style="gap:1px">
+                <div class="h3">@Thousands(total) palavras</div>
+                <div class="faint">@(meta > 0 ? $"meta: {Thousands(meta)}" : "sem meta definida")</div>
+                <div class="faint">@prontas de @Parts.Count partes prontas</div>
+            </div>
+        </div>
+        <div class="caption">ESTRUTURA DO TRABALHO</div>
+        <div class="scroll grow reorder @(_dragKind == "part" ? "dragging" : "")">
+            @{
+                int i = 1;
+            }
+            @foreach (var p in Parts.Objs())
+            {
+                var pp = p;
+                var id = p.S("id");
+                var st = STATUS_PARTE.FirstOrDefault(s => s.key == p.S("status", "afazer"));
+                if (st.key == null) st = STATUS_PARTE[0];
+                int pm = p.I("meta");
+                <div class="part @(p == _curPart ? "sel" : "") @DropCls("part", id)" draggable="true"
+                     @ondragstart='() => DragStart("part", id)' @ondragend="DragEnd"
+                     @onclick="() => ClickPart(pp)" @oncontextmenu="e => PartMenu(pp, e)" @oncontextmenu:preventDefault="true">
+                    <span class="part-num" style="background:@Tint(st.color, .82);color:@Ink(st.color, .25)">@(i++)</span>
+                    <div class="col grow">
+                        <div class="ell" style="font-weight:600">@p.S("titulo")</div>
+                        <div class="faint ell">@st.text · @PartWords(p) palavras@(pm > 0 ? $" de {pm}" : "")</div>
+                    </div>
+                    @DropZones("part", id)
+                </div>
+            }
+        </div>
+        <div class="faint wrap">Arraste para reordenar · botão direito: opções</div>
+        <div class="card row" style="gap:8px;padding:8px 8px 8px 12px">
+            <Ic N="bookshelf" C="@T["muted"]" S="18" />
+            <span class="muted grow">Referências · @nRefs fonte(s)</span>
+            <button class="tool" title="Ver referências" @onclick='() => SetView("refs")'><Ic N="arrow-right" C="@T["muted"]" /></button>
+        </div>
+    </div>
+</div>
+
+<div class="main">
+    <div class="toolbar">
+        <div class="row" style="gap:8px;padding:12px 20px 12px 24px">
+            <div class="h2 grow ell" title="@(M.S("titulo").Length > 0 ? M.S("titulo") : "Meu TCC")">@HeadTitle</div>
+            <Segmented Options="ViewOpts" Value="@_view" ValueChanged="SetView" />
+        </div>
+    </div>
+    <div class="stack grow">
+        @* ─────────────── escrever *@
+        <div class="row" style="position:absolute;inset:0;gap:14px;padding:14px 16px 12px 22px;align-items:stretch;display:@(_view == "escrever" ? "flex" : "none")">
+            <div class="col grow" style="gap:10px">
+                <div class="row" style="gap:8px">
+                    <input class="bare grow" style="font-size:@Ui.Pt(18);font-weight:700" placeholder="Título da parte" value="@_pTitle" @oninput="TitleEdit" />
+                    <select class="field" style="width:150px" value="@(_curPart?.S("status", "afazer") ?? "afazer")" @onchange="e => { if (_curPart != null) SetStatus(_curPart, V(e)); }">
+                        @foreach (var (k, n, c) in STATUS_PARTE)
+                        {
+                            <option value="@k">● @n</option>
+                        }
+                    </select>
+                </div>
+                <div class="row" style="background:@T["surface2"];border:1px solid @T["border"];border-radius:10px;padding:4px 6px;gap:1px;flex-wrap:wrap">
+                    <button class="tool" title="Desfazer" @onclick='() => _ed.Cmd("undo")'><Ic N="undo" /></button>
+                    <button class="tool" title="Refazer" @onclick='() => _ed.Cmd("redo")'><Ic N="redo" /></button>
+                    <span class="vline"></span>
+                    <button class="tool" title="Negrito" @onclick='() => _ed.Cmd("bold")'><Ic N="format-bold" /></button>
+                    <button class="tool" title="Itálico" @onclick='() => _ed.Cmd("italic")'><Ic N="format-italic" /></button>
+                    <button class="tool" title="Sublinhado" @onclick='() => _ed.Cmd("underline")'><Ic N="format-underline" /></button>
+                    <span class="vline"></span>
+                    <button class="tool" title="Esquerda" @onclick='() => _ed.Cmd("align", "left")'><Ic N="format-align-left" /></button>
+                    <button class="tool" title="Centralizar" @onclick='() => _ed.Cmd("align", "center")'><Ic N="format-align-center" /></button>
+                    <button class="tool" title="Justificar" @onclick='() => _ed.Cmd("align", "justify")'><Ic N="format-align-justify" /></button>
+                    <span class="vline"></span>
+                    <button class="btn ghost sm" title="Parágrafo ABNT: recuo de 1,25 cm, espaçamento 1,5, justificado" @onclick='() => _ed.Cmd("abnt", Fonte)'><Ic N="format-paragraph" S="16" /><span>ABNT</span></button>
+                    <button class="btn ghost sm" title="Título de seção (ex.: 2.1 A RESPONSABILIDADE CIVIL)" @onclick='() => _ed.Cmd("secao", Fonte)'><Ic N="format-header-pound" S="16" /><span>Seção</span></button>
+                    <button class="btn ghost sm" title="Recuo de 4 cm, fonte 10, espaçamento simples (mais de 3 linhas)" @onclick='() => _ed.Cmd("longa", Fonte)'><Ic N="format-quote-close" S="16" /><span>Citação longa</span></button>
+                </div>
+                <div class="paper grow" style="padding:18px 12px 10px 36px;flex-direction:row">
+                    <RichEditor @ref="_ed" Mode="tcc" OnChanged="TextChanged" />
+                </div>
+                <div class="row">
+                    <span class="faint">@PartInfo()</span>
+                    <span class="sp"></span>
+                    <span class="faint">Salvo automaticamente</span>
+                </div>
+            </div>
+            @* painel lateral de citações *@
+            <div class="card col" style="width:300px;flex:none;gap:8px;padding:14px 12px 12px 14px">
+                <div class="row">
+                    <div class="h3">Citações</div>
+                    <span class="sp"></span>
+                    <button class="tool" title="Nova citação" @onclick='async () => { await SetView("citacoes"); NewCit(); }'><Ic N="plus" C="@T["accent"]" /></button>
+                </div>
+                <SearchBox @ref="_qSearch" Placeholder="Buscar citação…" Value="@_qq" ValueChanged="v => _qq = v" />
+                <Segmented Options="QOnlyOpts" Value="@_qOnly" ValueChanged="v => _qOnly = v" />
+                <div class="scroll grow" style="padding-right:4px">
+                    @{
+                        var quick = QuickList();
+                        bool only = _qOnly == "parte" && _curPart != null;
+                        bool maiusc = M.B("autor_maiusc", true);
+                    }
+                    @if (quick.Count == 0)
+                    {
+                        <div class="faint wrap">@(only ? "Nenhuma citação ligada a esta parte. Veja “Todas” ou cadastre na aba Citações." : "Nenhuma citação encontrada.")</div>
+                    }
+                    @foreach (var c in quick)
+                    {
+                        var cc = c;
+                        var tr = Collapse(c.S("trecho").Length > 0 ? c.S("trecho") : c.S("nota"));
+                        <div class="quick">
+                            <div class="serif wrap" style="font-size:@Ui.Pt(9.5)">@(tr.Length > 0 ? tr[..Math.Min(120, tr.Length)] + (tr.Length > 120 ? "…" : "") : "(sem trecho)")</div>
+                            <div class="faint wrap">@CitacaoTxt(c, maiusc: maiusc)</div>
+                            <div class="row" style="gap:4px">
+                                <button class="btn soft sm" title="Entre aspas, com página" @onclick='() => InsertCit(cc, "direta")'>Direta</button>
+                                <button class="btn sm" title="Bloco com recuo de 4 cm" @onclick='() => InsertCit(cc, "longa")'>Longa</button>
+                                <button class="btn sm" title="Só a chamada (AUTOR, ano)" @onclick='() => InsertCit(cc, "indireta")'>Indireta</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="faint wrap">Clique onde quer inserir no texto e escolha o formato.</div>
+            </div>
+        </div>
+
+        @* ─────────────── citações *@
+        <div class="row" style="position:absolute;inset:0;gap:16px;padding:16px 22px 14px;align-items:stretch;display:@(_view == "citacoes" ? "flex" : "none")">
+            <div class="col" style="flex:5;min-width:0;gap:8px">
+                <div class="row" style="gap:8px">
+                    <SearchBox @ref="_cSearch" Class="grow" Placeholder="Buscar no trecho, autor, título, tags…" Value="@_cq" ValueChanged="v => _cq = v" />
+                    <button class="btn primary" @onclick="NewCit"><Ic N="plus" C="#fff" S="16" /><span>Nova citação</span></button>
+                </div>
+                <div class="row" style="gap:8px">
+                    <span class="muted">Ordenar:</span>
+                    <select class="field grow" value="@D.S("ordem", "manual")" @onchange='e => { D["ordem"] = V(e); Win.Save(); }'>
+                        @foreach (var (k, t) in SortOpts)
+                        {
+                            <option value="@k">@t</option>
+                        }
+                    </select>
+                    <span class="muted">Parte:</span>
+                    <select class="field grow" value="@_cPart" @onchange="e => _cPart = V(e)">
+                        <option value="">Todas</option>
+                        <option value="__none__">Sem parte definida</option>
+                        @foreach (var p in Parts.Objs())
+                        {
+                            <option value="@p.S("id")">@p.S("titulo")</option>
+                        }
+                    </select>
+                </div>
+                @{
+                    var shown = ShownCits();
+                    bool manual = D.S("ordem", "manual") == "manual" && (_cq ?? "").Trim().Length == 0 && string.IsNullOrEmpty(_cPart);
+                    var pnames = Parts.Objs().ToDictionary(p => p.S("id"), p => p.S("titulo"));
+                    bool mai = M.B("autor_maiusc", true);
+                }
+                <div class="faint">@shown.Count de @Cits.Count citações@(manual && shown.Count > 1 ? " · arraste para reordenar" : "")</div>
+                <div class="scroll grow reorder @(_dragKind == "cit" ? "dragging" : "")" style="padding-right:4px">
+                    @foreach (var c in shown)
+                    {
+                        var cc = c;
+                        var id = c.S("id");
+                        var parteNome = pnames.GetValueOrDefault(c.S("parte"), "");
+                        var tr = Collapse(c.S("trecho").Length > 0 ? c.S("trecho") : c.S("nota"));
+                        var tit = c.S("titulo");
+                        var tags = c.S("tags");
+                        <div class="stripcard @(c == _curCit ? "sel" : "") @DropCls("cit", id)" style="--strip:@T["accent2"];margin-bottom:8px;overflow:visible"
+                             draggable="@(manual ? "true" : "false")" @ondragstart='() => DragStart("cit", id)' @ondragend="DragEnd" @onclick="() => OnCit(cc)">
+                            <div class="col" style="gap:5px;padding:11px 12px 11px 14px">
+                                <div class="row" style="gap:6px">
+                                    <Chip Text="@TipoNome(c.S("tipo"))" Color="@T["accent"]" Strong="true" />
+                                    <Chip Text="@(c.S("modo", "direta") == "indireta" ? "Indireta" : "Direta")" Color="@T["muted"]" />
+                                    @if (!string.IsNullOrEmpty(parteNome))
+                                    {
+                                        <Chip Text="@parteNome" Color="#2f9e44" />
+                                    }
+                                    <span class="sp"></span>
+                                    @if (c.A("usos").Count > 0)
+                                    {
+                                        <Ic N="check-decagram" C="@T["success"]" S="15" Tip="Já usada no texto" />
+                                    }
+                                </div>
+                                <div class="serif wrap" style="font-size:@Ui.Pt(9.5)">@(tr.Length > 0 ? "“" + tr[..Math.Min(170, tr.Length)] + (tr.Length > 170 ? "…" : "") + "”" : "(sem trecho)")</div>
+                                <div class="faint ell">@CitacaoTxt(c, maiusc: mai)  ·  @(tit.Length > 60 ? tit[..60] : tit)</div>
+                                @if (tags.Length > 0)
+                                {
+                                    <div class="faint">@string.Join("  ", tags.Split(',').Select(t => t.Trim()).Where(t => t.Length > 0).Select(t => "#" + t))</div>
+                                }
+                            </div>
+                            @DropZones("cit", id)
+                        </div>
+                    }
+                </div>
+            </div>
+            @* formulário *@
+            <div class="card scroll" style="flex:4;min-width:400px;padding:16px 20px 18px" @onkeydown="FormKey">
+                <div class="fgrid">
+                    <div class="full row">
+                        <div class="h2 grow">@(_curCit != null ? "Editar citação" : "Nova citação")</div>
+                        @if (_curCit != null)
+                        {
+                            <button class="tool" title="Excluir citação" @onclick="DeleteCit"><Ic N="delete-outline" C="@T["danger"]" /></button>
+                        }
+                    </div>
+                    <div class="caption">TIPO DE FONTE</div>
+                    <div class="caption">USO</div>
+                    <select class="field" value="@_f["tipo"]" @onchange="e => TipoUi(V(e))">
+                        @foreach (var (k, t) in TIPOS_FONTE)
+                        {
+                            <option value="@k">@t</option>
+                        }
+                    </select>
+                    <select class="field" value="@_f["modo"]" @onchange='e => _f["modo"] = V(e)'>
+                        <option value="direta">Direta (literal)</option>
+                        <option value="indireta">Indireta (paráfrase)</option>
+                    </select>
+                    <div class="caption full">TRECHO</div>
+                    <textarea class="field full" style="min-height:110px" placeholder="Cole aqui o trecho exatamente como está na obra (ou anote a ideia, se for paráfrase)"
+                              value="@_f["trecho"]" @oninput='e => _f["trecho"] = V(e)' @ref="_trechoEl"></textarea>
+                    @FieldFull("autores", "Autor(es)", "Sobrenome, Nome; Sobrenome, Nome  — ou entidade: BRASIL. Superior Tribunal de Justiça")
+                    @FieldFull("titulo", "Título", TituloPh)
+                    @if (Show("subtitulo"))
+                    {
+                        @FieldFull("subtitulo", "Subtítulo", "")
+                    }
+                    @if (Show("obra"))
+                    {
+                        @FieldFull("obra", "Título da obra no todo (livro)", "")
+                        @FieldFull("obra_autor", "Organizador / autor da obra", "")
+                    }
+                    @if (Show("edicao"))
+                    {
+                        <div class="caption">EDIÇÃO</div>
+                        <div class="caption">ANO</div>
+                        @Input("edicao", "")
+                        @Input("ano", "")
+                    }
+                    else
+                    {
+                        @FieldFull("ano", "Ano", "")
+                    }
+                    <div class="caption">LOCAL</div>
+                    <div class="caption">@EditoraCap</div>
+                    @Input("local", "")
+                    @Input("editora", EditoraPh)
+                    @if (Show("volume"))
+                    {
+                        @FieldFull("volume", VolumeCap, VolumePh)
+                    }
+                    <div class="caption">PÁGINA DO TRECHO</div>
+                    <div class="caption">DATA DE ACESSO</div>
+                    @Input("pagina", "")
+                    @Input("acesso", "AAAA-MM-DD")
+                    @FieldFull("url", "Link (URL)", "")
+                    <div class="caption">TAGS</div>
+                    <div class="caption">USAR NA PARTE</div>
+                    @Input("tags", "responsabilidade civil, dano moral")
+                    <select class="field" value="@_f["parte"]" @onchange='e => _f["parte"] = V(e)'>
+                        <option value="">— nenhuma —</option>
+                        @foreach (var p in Parts.Objs())
+                        {
+                            <option value="@p.S("id")">@p.S("titulo")</option>
+                        }
+                    </select>
+                    <div class="caption full">COMENTÁRIO</div>
+                    <textarea class="field full" style="height:70px" placeholder="Sua observação: por que essa citação importa, onde usar…"
+                              value="@_f["nota"]" @oninput='e => _f["nota"] = V(e)'></textarea>
+                    <div class="caption full" style="margin-top:10px">PRÉ-VISUALIZAÇÃO ABNT</div>
+                    <div class="preview full wrap">@((MarkupString)PreviewHtml())</div>
+                    <div class="full row" style="gap:8px;margin-top:12px">
+                        <button class="btn" title="Copiar a citação formatada" @onclick='() => Copy("cit")'><Ic N="content-copy" S="16" /><span>Citação</span></button>
+                        <button class="btn" title="Copiar a referência ABNT" @onclick='() => Copy("ref")'><Ic N="content-copy" S="16" /><span>Referência</span></button>
+                        <span class="sp"></span>
+                        <button class="btn primary" @onclick="SaveCit"><Ic N="content-save-outline" C="#fff" S="16" /><span>Salvar</span></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @* ─────────────── referências *@
+        <div class="col" style="position:absolute;inset:0;gap:10px;padding:16px 22px 14px;display:@(_view == "refs" ? "flex" : "none")">
+            <div class="row" style="gap:8px">
+                <div class="h2 grow">Referências (ABNT NBR 6023)</div>
+                <Segmented Options="RModeOpts" Value="@_rMode" ValueChanged="async v => { _rMode = v; await RefreshRefs(); }" />
+                <button class="btn" @onclick="CopyRefs"><Ic N="content-copy" S="16" /><span>Copiar lista</span></button>
+            </div>
+            <div class="faint wrap">
+                Lista gerada automaticamente a partir das suas citações, em ordem alfanumérica, alinhada à esquerda e com espaço simples
+                entre linhas. Confira os dados de cada fonte.
+            </div>
+            <div class="paper grow" style="padding:2px;flex-direction:row">
+                <HtmlView @ref="_refs" />
+            </div>
+        </div>
+
+        @* ─────────────── projeto *@
+        <div class="scroll" style="position:absolute;inset:0;background:@T["bg"];display:@(_view == "projeto" ? "block" : "none")">
+            <div class="center-col" style="max-width:860px;padding:20px 28px 28px">
+                <div class="card" style="padding:20px 24px 22px">
+                    <div class="fgrid" style="gap:4px 14px">
+                        <div class="h2 full">Dados do trabalho (capa)</div>
+                        @MetaFieldFull("titulo", "Título")
+                        @MetaFieldFull("subtitulo", "Subtítulo")
+                        <div class="caption">AUTOR(A)</div>
+                        <div class="caption">ORIENTADOR(A)</div>
+                        @MetaInput("autor")
+                        @MetaInput("orientador")
+                        <div class="caption">INSTITUIÇÃO</div>
+                        <div class="caption">CURSO</div>
+                        @MetaInput("instituicao")
+                        @MetaInput("curso")
+                        <div class="caption">CIDADE</div>
+                        <div class="caption">ANO</div>
+                        @MetaInput("cidade")
+                        @MetaInput("ano")
+                        <div class="caption full">NATUREZA DO TRABALHO (FOLHA DE ROSTO)</div>
+                        <input class="field full" value="@M.S("natureza")" @oninput='e => MetaSet("natureza", V(e))'
+                               placeholder="Trabalho de Conclusão de Curso apresentado ao Curso de Direito da … como requisito parcial para a obtenção do título de Bacharel em Direito." />
+                    </div>
+                </div>
+                <div class="card col" style="gap:6px;padding:20px 24px 22px">
+                    <div class="h2">Formatação e metas</div>
+                    <div class="row" style="gap:14px">
+                        <div class="col grow" style="gap:6px">
+                            <div class="caption">FONTE</div>
+                            <select class="field" value="@M.S("fonte", "Times New Roman")" @onchange='async e => { MetaSet("fonte", V(e)); await RefreshRefs(); }'>
+                                <option value="Times New Roman">Times New Roman</option>
+                                <option value="Arial">Arial</option>
+                            </select>
+                        </div>
+                        <div class="col grow" style="gap:6px">
+                            <div class="caption">META TOTAL DE PALAVRAS</div>
+                            <input class="field" value="@M.I("meta_palavras", 12000)" @oninput="MetaWords" />
+                        </div>
+                    </div>
+                    <div class="caption" style="margin-top:6px">AUTOR NA CHAMADA DA CITAÇÃO</div>
+                    <select class="field" value="@(M.B("autor_maiusc", true) ? "1" : "0")" @onchange='e => MetaSet("autor_maiusc", V(e) == "1")'>
+                        <option value="1">(SILVA, 2020, p. 15) — maiúsculas</option>
+                        <option value="0">(Silva, 2020, p. 15) — maiúscula só na inicial</option>
+                    </select>
+                    <div class="faint wrap">Confira a regra exigida pela sua instituição (NBR 10520). Mudar aqui afeta as próximas citações inseridas.</div>
+                </div>
+                <div class="card col" style="gap:10px;padding:20px 24px 22px">
+                    <div class="h2">Exportar o trabalho completo</div>
+                    <div class="muted wrap">
+                        Gera capa, folha de rosto, todas as partes na ordem da estrutura (cada uma em nova página) e as referências, com margens ABNT
+                        (3 cm superior/esquerda, 2 cm inferior/direita).
+                    </div>
+                    <div class="row" style="gap:8px">
+                        <button class="btn primary" @onclick="ExportPdf"><Ic N="file-pdf-box" C="#fff" S="16" /><span>Exportar PDF</span></button>
+                        <button class="btn" @onclick="ExportDoc"><Ic N="file-word-box" S="16" /><span>Exportar Word (.doc)</span></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    protected override string PageKey => "tcc";
+
+    static readonly (string, string, string)[] ViewOpts =
+    {
+        ("escrever", "Escrever", "pencil-outline"), ("citacoes", "Citações", "format-quote-open"),
+        ("refs", "Referências", "bookshelf"), ("projeto", "Projeto", "cog-outline"),
+    };
+    static readonly (string, string, string)[] QOnlyOpts = { ("parte", "Desta parte", null), ("todas", "Todas", null) };
+    static readonly (string, string, string)[] RModeOpts = { ("usadas", "Só as citadas no texto", null), ("todas", "Todas as fontes", null) };
+    static readonly (string, string)[] SortOpts =
+    {
+        ("manual", "Ordem manual (arraste)"), ("autor", "Autor (A–Z)"), ("ano_asc", "Ano (mais antigo)"), ("ano_desc", "Ano (mais recente)"),
+        ("recentes", "Adicionadas recentemente"), ("parte", "Por parte do TCC"), ("tipo", "Por tipo de fonte"),
+    };
+    static readonly string[] FKeys = { "autores", "titulo", "subtitulo", "edicao", "ano", "local", "editora", "volume", "pagina", "url", "acesso", "tags", "obra", "obra_autor" };
+
+    JsonObject D => (JsonObject)Store.Data["tcc"];
+    JsonObject M => D.O("meta");
+    JsonArray Parts => D.A("parts");
+    JsonArray Cits => D.A("cits");
+    JsonObject _curPart, _curCit;
+    bool _loading;
+    Once _saveTimer;
+    string _view = "escrever", _pTitle = "", _qq = "", _qOnly = "parte", _cq = "", _cPart = "", _rMode = "todas";
+    string _dragKind, _dragId, _dropId;
+    int _dropPos;
+    readonly Dictionary<string, string> _f = new();
+    RichEditor _ed;
+    HtmlView _refs;
+    SearchBox _qSearch, _cSearch;
+    ElementReference _trechoEl;
+
+    string Fonte => string.IsNullOrEmpty(M.S("fonte")) ? "Times New Roman" : M.S("fonte");
+
+    protected override void Init()
+    {
+        if (Store.Data["tcc"] is not JsonObject t || t.A("parts").Count == 0) Store.Data["tcc"] = TccDefault();
+        _saveTimer = new Once(800, () => InvokeAsync(() => { SavePart(); StateHasChanged(); }));
+        LoadForm(null);
+        if (Parts.Count > 0)
+        {
+            var first = (JsonObject)Parts[0];
+            Post(() => OpenPart(first));
+        }
+    }
+
+    string HeadTitle
+    {
+        get
+        {
+            var t = M.S("titulo");
+            if (t.Length == 0) t = "Meu TCC";
+            return t.Length < 44 ? t : t[..42].TrimEnd() + "…";
+        }
+    }
+
+    static int PartWords(JsonObject p) => Words(p.S("plain"));
+
+    // ─────────────────────────── arrastar para reordenar
+    string DropCls(string kind, string id) => _dragKind == kind && _dropId == id ? (_dropPos < 0 ? "drop-before" : "drop-after") : "";
+
+    RenderFragment DropZones(string kind, string id) => __builder =>
+    {
+        <div class="dz top" @ondragover="() => Over(kind, id, -1)" @ondragover:preventDefault="true" @ondrop="() => Drop(kind)" @ondrop:preventDefault="true"></div>
+        <div class="dz bot" @ondragover="() => Over(kind, id, 1)" @ondragover:preventDefault="true" @ondrop="() => Drop(kind)" @ondrop:preventDefault="true"></div>
+    };
+
+    void DragStart(string kind, string id)
+    {
+        _dragKind = kind;
+        _dragId = id;
+    }
+
+    void DragEnd()
+    {
+        _dragKind = null;
+        _dragId = null;
+        _dropId = null;
+    }
+
+    void Over(string kind, string id, int pos)
+    {
+        if (_dragKind != kind) return;
+        _dropId = id;
+        _dropPos = pos;
+    }
+
+    void Drop(string kind)
+    {
+        var src = _dragId;
+        var target = _dropId;
+        var pos = _dropPos;
+        var k = _dragKind;
+        DragEnd();
+        if (k != kind || src == null || target == null || src == target) return;
+        var arr = kind == "part" ? Parts : Cits;
+        IEnumerable<JsonObject> order = kind == "part" ? arr.Objs() : ShownCits();
+        var ids = order.Select(o => o.S("id")).ToList();
+        ids.Remove(src);
+        int ti = ids.IndexOf(target);
+        if (ti < 0) return;
+        ids.Insert(pos < 0 ? ti : ti + 1, src);
+        var by = arr.Objs().ToDictionary(o => o.S("id"));
+        var rest = arr.Objs().Where(o => !ids.Contains(o.S("id"))).ToList();
+        J.Reset(arr, ids.Where(by.ContainsKey).Select(i => (JsonNode)by[i]).Concat(rest));
+        Win.Save();
+    }
+
+    // ─────────────────────────── partes
+    async Task ClickPart(JsonObject p)
+    {
+        if (p != _curPart) await OpenPart(p);
+        await SetView("escrever");
+    }
+
+    void PartMenu(JsonObject p, MouseEventArgs e)
+    {
+        var sm = STATUS_PARTE.Select(s =>
+        {
+            var k = s.key;
+            var col = s.color;
+            return new MItem
+            {
+                Text = s.text, IconFragment = b => { b.OpenComponent<Swatch>(0); b.AddAttribute(1, "Color", col); b.AddAttribute(2, "Size", 12.0); b.CloseComponent(); },
+                Action = () => { SetStatus(p, k); return Task.CompletedTask; },
+            };
+        }).ToList();
+        Win.ShowMenu(new List<MItem>
+        {
+            MItem.Async("pencil-outline", "Renomear", () => RenamePart(p)),
+            MItem.Sub("flag-outline", "Status", sm),
+            MItem.Async("target", "Meta de palavras…", () => SetPartMeta(p)),
+            MItem.Sep(),
+            MItem.Async("delete-outline", "Excluir parte", () => DeletePart(p), T["danger"]),
+        }, e);
+    }
+
+    async Task NewPart()
+    {
+        var nome = await Win.Ask("Nova parte", "Ex.: Capítulo 4 — Responsabilidade civil", "", icon: "file-plus-outline", ok: "Criar");
+        if (string.IsNullOrEmpty(nome)) return;
+        SavePart();
+        var p = new JsonObject
+        {
+            ["id"] = Uid(), ["titulo"] = nome, ["html"] = "", ["plain"] = "", ["status"] = "afazer", ["meta"] = 0, ["updated"] = NowIso(),
+        };
+        int idx = Parts.Count;
+        if (Parts.Count > 0 && ((JsonObject)Parts[^1]).S("titulo").ToLowerInvariant().StartsWith("conclus")) idx--;
+        Parts.InsertAt(idx, p);
+        Win.Save();
+        await OpenPart(p);
+        await SetView("escrever");
+    }
+
+    async Task RenamePart(JsonObject p)
+    {
+        var nome = await Win.Ask("Renomear parte", "", p.S("titulo"));
+        if (string.IsNullOrEmpty(nome)) return;
+        p["titulo"] = nome;
+        Win.Save();
+        if (p == _curPart) _pTitle = nome;
+    }
+
+    void SetStatus(JsonObject p, string k)
+    {
+        p["status"] = k;
+        Win.Save();
+    }
+
+    async Task SetPartMeta(JsonObject p)
+    {
+        var v = await Win.Ask("Meta de palavras", $"Quantas palavras você pretende escrever em “{p.S("titulo")}”?",
+            p.I("meta") > 0 ? p.I("meta").ToString() : "", icon: "target", ok: "Definir");
+        if (v == null) return;
+        var digits = Regex.Replace(v, @"\D", "");
+        p["meta"] = digits.Length > 0 && int.TryParse(digits, out var n) ? Math.Max(0, n) : 0;
+        Win.Save();
+    }
+
+    async Task DeletePart(JsonObject p)
+    {
+        if (!await Win.Confirm("Excluir parte?", $"“{p.S("titulo")}” e todo o texto dela serão excluídos.")) return;
+        Parts.Remove(p);
+        foreach (var c in Cits.Objs())
+            if (c.S("parte") == p.S("id")) c["parte"] = "";
+        if (p == _curPart) _curPart = null;
+        Win.Save();
+        if (Parts.Count > 0) await OpenPart((JsonObject)Parts[0]);
+    }
+
+    // ─────────────────────────── escrever
+    async Task OpenPart(JsonObject p)
+    {
+        SavePart();
+        _curPart = p;
+        _loading = true;
+        _pTitle = p.S("titulo");
+        await _ed.Load(p.S("html"), false, Fonte);
+        _loading = false;
+        StateHasChanged();
+    }
+
+    string PartInfo()
+    {
+        var p = _curPart;
+        if (p == null) return "";
+        int n = Words(_ed?.Plain ?? "");
+        int meta = p.I("meta");
+        double pag = n / 300.0;
+        return $"{n} palavras" + (meta > 0 ? $" de {meta} ({Math.Round(100.0 * n / meta)}%)" : "")
+               + $" · ≈ {pag.ToString("0.0", Inv).Replace(".", ",")} página(s) ABNT";
+    }
+
+    void TitleEdit(ChangeEventArgs e)
+    {
+        _pTitle = V(e);
+        if (_curPart != null && !_loading)
+        {
+            _curPart["titulo"] = _pTitle.Length > 0 ? _pTitle : "Sem título";
+            _saveTimer.Start();
+        }
+    }
+
+    void TextChanged()
+    {
+        if (_loading || _curPart == null) return;
+        if (_curPart.S("status") == "afazer" && _ed.Plain.Trim().Length > 0) _curPart["status"] = "escrevendo";
+        _saveTimer.Start();
+    }
+
+    public void SavePart()
+    {
+        _saveTimer?.Stop();
+        var p = _curPart;
+        if (p == null || _loading || _ed == null) return;
+        if (_ed.Modified || p.S("titulo") != (_pTitle.Length > 0 ? _pTitle : "Sem título"))
+        {
+            p["html"] = _ed.FullHtml;
+            p["plain"] = _ed.Plain;
+            p["updated"] = NowIso();
+            _ed.Modified = false;
+            Win.Save();
+            Win.RefreshCounts();
+        }
+        else Win.Save();
+    }
+
+    public override void Flush() => SavePart();
+
+    // ─────────────────────────── inserir citação
+    List<JsonObject> QuickList()
+    {
+        var q = (_qq ?? "").Trim().ToLowerInvariant();
+        bool only = _qOnly == "parte" && _curPart != null;
+        return Cits.Objs().Where(c => (!only || c.S("parte") == _curPart.S("id"))
+                                      && (q.Length == 0 || (c.S("trecho") + c.S("autores") + c.S("titulo") + c.S("tags")).ToLowerInvariant().Contains(q))).ToList();
+    }
+
+    async Task InsertCit(JsonObject c, string modo)
+    {
+        if (_curPart == null) return;
+        bool maiusc = M.B("autor_maiusc", true);
+        var tr = Collapse(c.S("trecho"));
+        JsonObject o;
+        if (modo == "indireta" || tr.Length == 0) o = new JsonObject { ["mode"] = "indireta", ["text"] = CitacaoTxt(c, "indireta", maiusc) };
+        else if (modo == "direta") o = new JsonObject { ["mode"] = "direta", ["text"] = $"“{tr}” {CitacaoTxt(c, "direta", maiusc)}" };
+        else o = new JsonObject { ["mode"] = "longa", ["text"] = $"{tr} {CitacaoTxt(c, "direta", maiusc)}" };
+        o["font"] = Fonte;
+        await _ed.Cmd("citation", o);
+        var usos = c.A("usos");
+        if (!usos.Strs().Contains(_curPart.S("id"))) usos.Add(JsonValue.Create(_curPart.S("id")));
+        if (c.S("parte").Length == 0) c["parte"] = _curPart.S("id");
+        Win.Save();
+        Win.Toast("Citação inserida");
+    }
+
+    // ─────────────────────────── citações
+    List<JsonObject> Sorted()
+    {
+        var cits = Cits.List();
+        var k = D.S("ordem", "manual");
+        var pidx = Parts.Objs().Select((p, i) => (p.S("id"), i)).ToDictionary(x => x.Item1, x => x.i);
+        switch (k)
+        {
+            case "autor": return cits.OrderBy(c => CitAutor(c).ToLowerInvariant(), StringComparer.Ordinal).ThenBy(c => AnoTxt(c), StringComparer.Ordinal).ToList();
+            case "ano_asc": return cits.OrderBy(c => AnoTxt(c), StringComparer.Ordinal).ThenBy(c => CitAutor(c).ToLowerInvariant(), StringComparer.Ordinal).ToList();
+            case "ano_desc": return cits.OrderByDescending(c => AnoTxt(c), StringComparer.Ordinal).ThenByDescending(c => CitAutor(c).ToLowerInvariant(), StringComparer.Ordinal).ToList();
+            case "recentes": return cits.OrderByDescending(c => c.S("created"), StringComparer.Ordinal).ToList();
+            case "parte": return cits.OrderBy(c => pidx.TryGetValue(c.S("parte"), out var i) ? i : 999).ToList();
+            case "tipo":
+                var ordem = TIPOS_FONTE.Select(t => t.key).ToList();
+                return cits.OrderBy(c => ordem.IndexOf(c.S("tipo", "livro")) is var i && i >= 0 ? i : 99).ToList();
+        }
+        return cits;
+    }
+
+    List<JsonObject> ShownCits()
+    {
+        var q = (_cq ?? "").Trim().ToLowerInvariant();
+        var pf = _cPart ?? "";
+        var outp = new List<JsonObject>();
+        foreach (var c in Sorted())
+        {
+            if (pf == "__none__" && c.S("parte").Length > 0) continue;
+            if (pf.Length > 0 && pf != "__none__" && c.S("parte") != pf) continue;
+            if (q.Length > 0 && !string.Join(" ", new[] { "trecho", "autores", "titulo", "tags", "nota" }.Select(k => c.S(k))).ToLowerInvariant().Contains(q))
+                continue;
+            outp.Add(c);
+        }
+        return outp;
+    }
+
+    RenderFragment Input(string key, string ph) => __builder =>
+    {
+        <input class="field" placeholder="@ph" value="@_f[key]" @oninput="e => _f[key] = V(e)" />
+    };
+
+    RenderFragment FieldFull(string key, string cap, string ph) => __builder =>
+    {
+        <div class="caption full">@cap.ToUpper()</div>
+        <input class="field full" placeholder="@ph" value="@_f[key]" @oninput="e => _f[key] = V(e)" />
+    };
+
+    string Tipo => _f.GetValueOrDefault("tipo", "livro");
+
+    bool Show(string k)
+    {
+        var t = Tipo;
+        return k switch
+        {
+            "subtitulo" => t is "livro" or "capitulo" or "artigo" or "site" or "tese",
+            "obra" or "obra_autor" => t == "capitulo",
+            "edicao" => t is "livro" or "capitulo",
+            "volume" => t is "artigo" or "juris" or "tese" or "capitulo",
+            _ => true,
+        };
+    }
+
+    string EditoraCap => Tipo switch
+    {
+        "livro" or "capitulo" => "EDITORA", "artigo" => "PERIÓDICO", "lei" => "PUBLICAÇÃO", "juris" => "COMPLEMENTO",
+        "site" => "SITE / EDITORA", _ => "INSTITUIÇÃO",
+    };
+
+    string EditoraPh => Tipo switch { "lei" => "Diário Oficial da União", "artigo" => "Revista …", _ => "" };
+
+    string VolumeCap => Tipo switch
+    {
+        "artigo" => "Volume, número, páginas", "juris" => "Relator e julgamento", "tese" => "Tipo do trabalho",
+        "capitulo" => "Páginas do capítulo", _ => "Volume",
+    };
+
+    string VolumePh => Tipo switch
+    {
+        "artigo" => "v. 12, n. 3, p. 45-67", "juris" => "Relator: Min. Fulano. Julgado em 10 mar. 2024",
+        "tese" => "Dissertação (Mestrado em Direito)", "capitulo" => "p. 15-40", _ => "",
+    };
+
+    string TituloPh => Tipo switch
+    {
+        "lei" => "Lei nº 8.078, de 11 de setembro de 1990. Dispõe sobre a proteção do consumidor",
+        "juris" => "Recurso Especial nº 1.234.567/SP", _ => "",
+    };
+
+    void TipoUi(string t)
+    {
+        _f["tipo"] = t;
+        if ((t == "lei" || t == "juris") && _f["autores"].Trim().Length == 0)
+            _f["autores"] = t == "lei" ? "BRASIL" : "BRASIL. Superior Tribunal de Justiça";
+    }
+
+    JsonObject FormData()
+    {
+        var d = new JsonObject();
+        foreach (var k in FKeys) d[k] = _f[k].Trim();
+        d["tipo"] = _f["tipo"];
+        d["modo"] = _f["modo"];
+        d["trecho"] = _f["trecho"].Trim();
+        d["nota"] = _f["nota"].Trim();
+        d["parte"] = _f["parte"];
+        return d;
+    }
+
+    string PreviewHtml()
+    {
+        var d = FormData();
+        bool maiusc = M.B("autor_maiusc", true);
+        return $"<span style=\"font-family:{UI_FONT},sans-serif; font-size:10.7px; color:{T["muted"]}\"><b>NO TEXTO</b></span><br>"
+               + $"{Esc(CitacaoTxt(d, maiusc: maiusc))}<br><br>"
+               + $"<span style=\"font-family:{UI_FONT},sans-serif; font-size:10.7px; color:{T["muted"]}\"><b>REFERÊNCIA</b></span><br>"
+               + ReferenciaHtml(d);
+    }
+
+    void OnCit(JsonObject c)
+    {
+        _curCit = c;
+        LoadForm(c);
+    }
+
+    void LoadForm(JsonObject c)
+    {
+        var src = c ?? new JsonObject();
+        _f["tipo"] = src.S("tipo", "livro");
+        _f["modo"] = src.S("modo", "direta");
+        foreach (var k in FKeys) _f[k] = src.S(k);
+        _f["trecho"] = src.S("trecho");
+        _f["nota"] = src.S("nota");
+        _f["parte"] = c != null ? c.S("parte") : (_curPart?.S("id") ?? "");
+        if (!TIPOS_FONTE.Any(t => t.key == _f["tipo"])) _f["tipo"] = "livro";
+        TipoUi(_f["tipo"]);
+    }
+
+    void NewCit()
+    {
+        _curCit = null;
+        LoadForm(null);
+        Post(() => Js.Focus(_trechoEl).AsTask());
+    }
+
+    async Task FormKey(KeyboardEventArgs e)
+    {
+        if (e.Key.Equals("s", StringComparison.OrdinalIgnoreCase) && e.CtrlKey) await SaveCit();
+    }
+
+    async Task SaveCit()
+    {
+        var d = FormData();
+        if (d.S("trecho").Length == 0 && d.S("titulo").Length == 0)
+        {
+            await Win.Info("Citação vazia", "Preencha pelo menos o trecho ou o título da obra.", "alert-outline");
+            return;
+        }
+        if (d.S("url").Length > 0 && d.S("acesso").Length == 0) d["acesso"] = IsoDate(Today());
+        bool isNew = _curCit == null;
+        if (isNew)
+        {
+            _curCit = new JsonObject { ["id"] = Uid(), ["created"] = NowIso(), ["usos"] = new JsonArray() };
+            Cits.Add(_curCit);
+        }
+        foreach (var kv in d.ToList())
+        {
+            d.Remove(kv.Key);
+            _curCit[kv.Key] = kv.Value;
+        }
+        _curCit["updated"] = NowIso();
+        Win.Save();
+        Win.RefreshCounts();
+        LoadForm(_curCit);
+        Win.Toast(!isNew ? "Citação salva" : "Citação adicionada");
+    }
+
+    async Task DeleteCit()
+    {
+        if (_curCit == null) return;
+        if (!await Win.Confirm("Excluir citação?", "A citação sairá da sua biblioteca. O texto já escrito nas partes não é alterado.")) return;
+        Cits.Remove(_curCit);
+        _curCit = null;
+        LoadForm(null);
+        Win.Save();
+        Win.RefreshCounts();
+    }
+
+    async Task Copy(string what)
+    {
+        var d = FormData();
+        bool maiusc = M.B("autor_maiusc", true);
+        string txt;
+        if (what == "cit")
+        {
+            var tr = d.S("trecho");
+            txt = (tr.Length > 0 && d.S("modo") == "direta" ? $"“{tr}” " : "") + CitacaoTxt(d, maiusc: maiusc);
+        }
+        else txt = ReferenciaPlain(d);
+        await Js.CopyText(txt);
+        Win.Toast("Copiado");
+    }
+
+    // ─────────────────────────── referências
+    List<JsonObject> RefList(bool onlyUsed)
+    {
+        var seen = new HashSet<string>();
+        var outp = new List<JsonObject>();
+        foreach (var c in Cits.Objs())
+        {
+            if (onlyUsed && c.A("usos").Count == 0) continue;
+            var k = FonteKey(c);
+            if (seen.Contains(k) || (c.S("titulo").Length == 0 && c.S("autores").Length == 0)) continue;
+            seen.Add(k);
+            outp.Add(c);
+        }
+        return outp.OrderBy(c => Norm(ReferenciaPlain(c)), StringComparer.Ordinal).ToList();
+    }
+
+    async Task RefreshRefs()
+    {
+        if (_refs == null) return;
+        var lst = RefList(_rMode == "usadas");
+        var fam = Fonte;
+        if (lst.Count == 0)
+        {
+            await _refs.SetHtml($"<p style='color:#8a8f9e'>Nenhuma referência ainda. Cadastre citações com autor e título na aba Citações.</p>",
+                font: UI_FONT, pt: 10, margin: "24px 40px");
+            return;
+        }
+        await _refs.SetHtml($"<p align='center' style=\"font-family:'{fam}'; font-size:12pt;\"><b>REFERÊNCIAS</b></p>"
+                            + string.Concat(lst.Select(c => $"<p style=\"font-family:'{fam}'; font-size:12pt; margin:0 0 14px 0;\">{ReferenciaHtml(c)}</p>")),
+            font: fam, pt: 12, color: T["paper_text"], margin: "24px 40px");
+    }
+
+    async Task CopyRefs()
+    {
+        var lst = RefList(_rMode == "usadas");
+        await Js.CopyText(string.Join("\n\n", lst.Select(ReferenciaPlain)));
+        Win.Toast("Referências copiadas");
+    }
+
+    // ─────────────────────────── projeto
+    RenderFragment MetaInput(string k) => __builder =>
+    {
+        <input class="field" value="@M.S(k)" @oninput="e => MetaSet(k, V(e))" />
+    };
+
+    RenderFragment MetaFieldFull(string k, string cap) => __builder =>
+    {
+        <div class="caption full">@cap.ToUpper()</div>
+        <input class="field full" value="@M.S(k)" @oninput="e => MetaSet(k, V(e))" />
+    };
+
+    void MetaSet(string k, JsonNode v)
+    {
+        M[k] = v;
+        Win.Save();
+    }
+
+    void MetaWords(ChangeEventArgs e)
+    {
+        var digits = Regex.Replace(V(e), @"\D", "");
+        MetaSet("meta_palavras", digits.Length > 0 && int.TryParse(digits, out var n) ? n : 0);
+    }
+
+    string FullHtml()
+    {
+        SavePart();
+        var m = M;
+        var fam = Fonte;
+        string Cen(string t, int mt = 0, bool b = false, double sz = 12) =>
+            $"<p align='center' style='margin-top:{mt}px; margin-bottom:0; font-size:{Fmt(sz)}pt; text-align:center;'>"
+            + $"{(b ? "<b>" : "")}{Esc(t)}{(b ? "</b>" : "")}</p>";
+        var capa = Cen(m.S("instituicao").ToUpperInvariant(), 0, true) + Cen(m.S("curso").ToUpperInvariant(), 0, true)
+                   + Cen(m.S("autor").ToUpperInvariant(), 140, true)
+                   + Cen(m.S("titulo").ToUpperInvariant(), 160, true)
+                   + (m.S("subtitulo").Length > 0 ? Cen(m.S("subtitulo"), 0) : "")
+                   + Cen(m.S("cidade"), 260) + Cen(m.S("ano"), 0);
+        var rosto = "<p style='page-break-before:always; margin:0;'></p>" + Cen(m.S("autor").ToUpperInvariant(), 0, true)
+                    + Cen(m.S("titulo").ToUpperInvariant(), 180, true)
+                    + (m.S("subtitulo").Length > 0 ? Cen(m.S("subtitulo"), 0) : "")
+                    + "<table width='100%' style='margin-top:90px;'><tr><td width='45%'></td><td>"
+                    + $"<p align='justify' style='font-size:10pt; text-align:justify;'>{Esc(m.S("natureza"))}</p>"
+                    + $"<p style='font-size:10pt; margin-top:12px;'>Orientador(a): {Esc(m.S("orientador"))}</p>"
+                    + "</td></tr></table>"
+                    + Cen(m.S("cidade"), 180) + Cen(m.S("ano"), 0);
+        var partes = new System.Text.StringBuilder();
+        int i = 1;
+        foreach (var p in Parts.Objs())
+            partes.Append($"<p style='page-break-before:always; margin-bottom:24px; font-size:12pt;'><b>{i++} "
+                          + $"{Esc(p.S("titulo").ToUpperInvariant())}</b></p>" + TccBody(p.S("html")));
+        var refs = RefList(false);
+        var refHtml = "<p align='center' style='page-break-before:always; margin-bottom:24px; text-align:center;'><b>REFERÊNCIAS</b></p>"
+                      + string.Concat(refs.Select(c => $"<p style='margin:0 0 14px 0;'>{ReferenciaHtml(c)}</p>"));
+        return $"<html><body style=\"font-family:'{fam}'; font-size:12pt;\">" + capa + rosto + partes + refHtml + "</body></html>";
+    }
+
+    string FileName()
+    {
+        var nome = Regex.Replace(M.S("titulo").Length > 0 ? M.S("titulo") : "TCC", @"[^\w\- ]", "");
+        if (nome.Length > 60) nome = nome[..60];
+        return nome.Length > 0 ? nome : "TCC";
+    }
+
+    async Task ExportPdf()
+    {
+        var html = Web.Page(TccBody(FullHtml()), "", Fonte, 12, "#000000");
+        await Js.PrintHtml(html, 30, 30, 20, 20);
+        Win.Toast("Escolha “Salvar como PDF” na janela de impressão");
+    }
+
+    async Task ExportDoc()
+    {
+        await Js.Download($"{FileName()}.doc", "application/msword", Web.WordDoc(FullHtml(), Fonte));
+        Win.Toast("TCC exportado");
+    }
+
+    // ─────────────────────────── navegação
+    async Task SetView(string k)
+    {
+        _view = k;
+        if (k != "escrever") SavePart();
+        if (k == "refs") await RefreshRefs();
+        if (k == "citacoes" && _curCit == null) LoadForm(null);
+    }
+
+    public override void FocusSearch()
+    {
+        if (_view == "escrever") _ = _qSearch.FocusAll();
+        else
+        {
+            _view = "citacoes";
+            Post(() => _cSearch.FocusAll());
+        }
+    }
+
+    public override void CtrlN()
+    {
+        _view = "citacoes";
+        NewCit();
+    }
+
+    public override void CtrlS()
+    {
+        if (_view == "citacoes") _ = SaveCit();
+        else SavePart();
+    }
+}

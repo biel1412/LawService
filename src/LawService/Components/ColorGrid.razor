@@ -1,0 +1,58 @@
+@inject Js Js
+@{
+    var rec = Ui.Recent(Spec.RecentKey);
+}
+<div class="cgrid" @onclick:stopPropagation="true" @onmousedown:stopPropagation="true">
+    @if (!string.IsNullOrEmpty(Spec.Title))
+    {
+        <div class="caption">@Spec.Title.ToUpper()</div>
+    }
+    @if (rec.Count > 0)
+    {
+        <div class="faint">Recentes</div>
+        <div class="cg-row">
+            @foreach (var c in rec)
+            {
+                var cc = c;
+                <button class="swbtn" title="@cc" @onclick="() => Pick(cc)"><Swatch Color="@cc" Shape="@Spec.Shape" Size="20" /></button>
+            }
+        </div>
+    }
+    <div class="cg-grid" style="grid-template-columns:repeat(@Spec.Cols, 26px)">
+        @foreach (var c in Spec.Colors)
+        {
+            var cc = c;
+            <button class="swbtn" title="@cc" @onclick="() => Pick(cc)"><Swatch Color="@cc" Shape="@Spec.Shape" Size="20" Selected="@(cc == Spec.Current)" /></button>
+        }
+    </div>
+    <div class="cg-bottom">
+        @if (Spec.AllowNone)
+        {
+            <button class="btn ghost sm" @onclick="() => Pick(null)"><Ic N="water-off-outline" S="16" /><span>@Spec.NoneLabel</span></button>
+        }
+        <span style="flex:1"></span>
+        <label class="btn ghost sm">
+            <Ic N="palette-outline" S="16" /><span>Personalizada…</span>
+            <input type="color" value="@(Spec.Current != null && Spec.Current.StartsWith("#") && Spec.Current.Length == 7 ? Spec.Current : T["accent"])"
+                   @onchange="Custom" style="position:absolute;opacity:0;width:0;height:0;pointer-events:none" />
+        </label>
+    </div>
+</div>
+@code {
+    [Parameter] public ColorSpec Spec { get; set; }
+    [Parameter] public Action Close { get; set; }
+
+    void Pick(string c)
+    {
+        if (c != null) Ui.PushRecent(Spec.RecentKey, c, Spec.Cols);
+        Spec.Picked?.Invoke(c);
+        Close?.Invoke();
+    }
+
+    void Custom(ChangeEventArgs e)
+    {
+        var c = e.Value?.ToString();
+        if (string.IsNullOrEmpty(c)) return;
+        Pick(c.ToLowerInvariant());
+    }
+}

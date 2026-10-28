@@ -1,0 +1,27 @@
+@{
+    var rad = Shape == "circle" ? "50%" : "4px";
+    string bg, bd;
+    if (Color == null)
+    {
+        bg = $"linear-gradient(135deg,#fff 44%,{T["danger"]} 45%,{T["danger"]} 55%,#fff 56%)";
+        bd = T["border2"];
+    }
+    else
+    {
+        bg = Color;
+        bd = Mix(Color, "#000000", .14);
+    }
+}
+<span class="swatch" style="width:@(Size)px;height:@(Size)px;">
+    <span style="background:@bg;border:1px solid @bd;border-radius:@rad;"></span>
+    @if (Selected)
+    {
+        <i class="mdi mdi-check" style="color:#fff;font-size:@(Size * .7)px"></i>
+    }
+</span>
+@code {
+    [Parameter] public string Color { get; set; }
+    [Parameter] public string Shape { get; set; } = "circle";
+    [Parameter] public double Size { get; set; } = 18;
+    [Parameter] public bool Selected { get; set; }
+}

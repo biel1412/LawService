@@ -1,0 +1,584 @@
+@inherits PageBase
+@*  QUESTÕES — banco de questões com resolução e comentários. *@
+
+<div class="side" style="width:430px">
+    <div class="col side-in" style="gap:12px;padding:20px 12px 12px 18px">
+        <div class="panel-head">
+            <div class="h1">Questões</div>
+            <span class="sp"></span>
+            <button class="btn primary" @onclick="NewQ"><Ic N="plus" C="#fff" S="16" /><span>Nova questão</span></button>
+        </div>
+        <div class="card row" style="gap:14px;padding:12px 14px">
+            @{
+                int ok = Qs.Objs().Count(q => q.S("resultado") == "ok");
+                int err = Qs.Objs().Count(q => q.S("resultado") == "err");
+                int pend = Qs.Count - ok - err;
+            }
+            <Ring Size="58" Value="@(ok + err > 0 ? (double)ok / (ok + err) : 0)" />
+            <div class="col grow" style="gap:2px">
+                <div class="h3">Aproveitamento</div>
+                <div class="muted">@ok acertos  ·  @err erros  ·  @pend pendentes</div>
+            </div>
+        </div>
+        <div class="row" style="gap:8px">
+            <select class="field grow" value="@(_fArea ?? "")" @onchange="e => { _fArea = NullIfEmpty(e.Value); _fTema = null; }">
+                <option value="">Todas as áreas</option>
+                @foreach (var a in Areas())
+                {
+                    <option value="@a">● @a</option>
+                }
+            </select>
+            <select class="field grow" value="@(_fTema ?? "")" @onchange="e => _fTema = NullIfEmpty(e.Value)">
+                <option value="">Todos os temas</option>
+                @foreach (var t in Temas(_fArea))
+                {
+                    <option value="@t">@t</option>
+                }
+            </select>
+        </div>
+        <Segmented Options="StatusOpts" Value="@_fStatus" ValueChanged="v => _fStatus = v" />
+        <SearchBox @ref="_fSearch" Placeholder="Buscar no enunciado, banca, comentários…" Value="@_q" ValueChanged="v => _q = v" />
+        @{
+            var items = Filtered();
+            items.Reverse();
+        }
+        <div class="faint">@items.Count de @Qs.Count questões</div>
+        <div class="scroll grow" style="padding-right:4px">
+            @foreach (var q in items)
+            {
+                var qq = q;
+                var color = AreaColor(q.S("area"));
+                var sel = qq == _cur;
+                var res = q.S("resultado");
+                <div class="stripcard @(sel ? "sel" : "")" style="--strip:@color;margin-bottom:8px" @onclick="() => { if (qq != _cur) OpenQ(qq); }">
+                    <div class="col" style="gap:6px;padding:12px 14px 12px 16px">
+                        <div class="row" style="gap:8px">
+                            <Chip Text="@(string.IsNullOrEmpty(q.S("area")) ? "Sem área" : q.S("area"))" Color="@color" Strong="true" />
+                            <span class="faint ell" style="max-width:170px">@q.S("tema")</span>
+                            <span class="sp"></span>
+                            <Ic N="@(res == "ok" ? "check-circle" : res == "err" ? "close-circle" : "circle-outline")"
+                                C="@(res == "ok" ? T["success"] : res == "err" ? T["danger"] : T["border2"])" S="18"
+                                Tip="@(res == "ok" ? "Acertei" : res == "err" ? "Errei" : "Não resolvida")" />
+                        </div>
+                        @{
+                            var txt = Collapse(q.S("enunciado"));
+                        }
+                        <div class="wrap" style="color:@T["text2"];font-size:@Ui.Pt(9.5)">@(txt.Length > 150 ? txt[..150] + "…" : txt)</div>
+                        <div class="row" style="gap:6px">
+                            <span class="faint">@string.Join(" · ", new[] { q.S("banca"), q.S("ano"), q.S("tipo") == "ce" ? "Certo/Errado" : "Múltipla escolha" }.Where(x => !string.IsNullOrEmpty(x)))</span>
+                            <span class="sp"></span>
+                            @if (q.A("comments").Count > 0)
+                            {
+                                <Ic N="comment-text-outline" C="@T["faint"]" S="14" />
+                                <span class="faint">@q.A("comments").Count</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (items.Count == 0)
+            {
+                <div class="faint center">Nenhuma questão encontrada.</div>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="main scroll" style="background:@T["bg"]">
+    <div class="center-col" style="max-width:1100px;padding:24px 32px 32px">
+        <div class="row top" style="gap:10px">
+            <div class="col grow" style="gap:2px;min-width:0">
+                <div class="h1 ell">@_dTitle</div>
+                <div class="faint">@_dMeta</div>
+            </div>
+            @if (_cur != null)
+            {
+                <Segmented Options="ModeOpts" Value="@_mode" ValueChanged="SetMode" />
+            }
+        </div>
+
+        @* ─────────────── resolver *@
+        @if (_cur != null && _mode == "solve")
+        {
+            var q = _cur;
+            var col = AreaColor(q.S("area"));
+            <div class="card col" style="gap:14px;padding:22px 26px">
+                <div class="row" style="gap:6px;flex-wrap:wrap">
+                    @foreach (var (txt, c) in new[] { (q.S("area"), col), (q.S("tema"), T["muted"]), (q.S("banca"), T["muted"]), (q.S("ano"), T["muted"]) })
+                    {
+                        if (txt.Length > 0)
+                        {
+                            <Chip Text="@txt" Color="@c" Strong="@(c == col)" />
+                        }
+                    }
+                </div>
+                <div class="wrap pre" style="font-size:@Ui.Pt(12);color:@T["text"];user-select:text">@q.S("enunciado")</div>
+                <div class="col" style="gap:8px;margin-top:4px">
+                    @foreach (var (letter, text, disp) in OptionItems())
+                    {
+                        var L = letter;
+                        var st = OptState(L);
+                        <div class="opt @st" @onclick="() => Answer(L)">
+                            <span class="opt-badge">@disp</span>
+                            <span class="grow wrap">@text</span>
+                            @if (st == "correct")
+                            {
+                                <Ic N="check-circle" C="@T["success"]" S="22" />
+                            }
+                            else if (st == "wrong")
+                            {
+                                <Ic N="close-circle" C="@T["danger"]" S="22" />
+                            }
+                        </div>
+                    }
+                </div>
+                @if (_revealed != null)
+                {
+                    var okk = _revealed == q.S("gabarito");
+                    var tone = okk ? T["success"] : T["danger"];
+                    var gab = q.S("gabarito");
+                    var gtxt = q.S("tipo") == "ce" ? (gab == "C" ? "Certo" : gab == "E" ? "Errado" : gab) : gab;
+                    <div class="row" style="gap:10px;padding:12px 14px;border-radius:12px;background:@Tint(tone, .88)">
+                        <Ic N="@(okk ? "party-popper" : "alert-circle-outline")" C="@tone" S="22" />
+                        <div class="grow" style="color:@Ink(tone, .3);font-size:@Ui.Pt(10.5)">
+                            @if (okk)
+                            {
+                                <b>Você acertou!</b>
+                            }
+                            else
+                            {
+                                <b>Resposta incorreta.</b> <span>Gabarito: </span><b>@gtxt</b>
+                            }
+                        </div>
+                        <button class="btn ghost" @onclick="Retry"><Ic N="refresh" S="16" /><span>Tentar de novo</span></button>
+                    </div>
+                }
+                else
+                {
+                    <div class="faint wrap">@Hint()</div>
+                }
+            </div>
+        }
+
+        @* ─────────────── editar *@
+        @if (_cur == null || _mode == "edit")
+        {
+            <div class="card" style="padding:20px 24px 22px">
+                <div class="h2" style="margin-bottom:6px">Classificação</div>
+                <div class="qgrid">
+                    <div class="caption">ÁREA</div>
+                    <div class="caption">TEMA</div>
+                    <div class="caption">BANCA</div>
+                    <div class="caption">ANO</div>
+                    <div class="row" style="gap:4px">
+                        <button class="swbtn" title="Mudar cor" @ref="_colorBtn" @onclick="AreaColorMenu"><Swatch Color="@AreaSwatch" Size="18" /></button>
+                        <input class="field grow" list="q-areas" placeholder="Ex.: Direito Penal" value="@_eArea" @oninput="e => _eArea = V(e)" @ref="_eAreaEl" />
+                        <datalist id="q-areas">
+                            @foreach (var a in Areas())
+                            {
+                                <option value="@a"></option>
+                            }
+                        </datalist>
+                    </div>
+                    <div>
+                        <input class="field" style="width:100%" list="q-temas" placeholder="Ex.: Teoria do Crime" value="@_eTema" @oninput="e => _eTema = V(e)" />
+                        <datalist id="q-temas">
+                            @foreach (var t in Temas(_eArea.Trim().Length > 0 ? _eArea.Trim() : null))
+                            {
+                                <option value="@t"></option>
+                            }
+                        </datalist>
+                    </div>
+                    <input class="field" placeholder="Ex.: FGV" value="@_eBanca" @oninput="e => _eBanca = V(e)" />
+                    <input class="field" style="width:90px" placeholder="2026" value="@_eAno" @oninput="e => _eAno = V(e)" />
+                </div>
+            </div>
+            <div class="card col" style="gap:8px;padding:20px 24px 22px" @onkeydown="EditKey">
+                <div class="row">
+                    <div class="h2">Questão</div>
+                    <span class="sp"></span>
+                    <Segmented Options="TipoOpts" Value="@_eTipo" ValueChanged="TipoChanged" />
+                </div>
+                <div class="caption" style="margin-top:4px">ENUNCIADO</div>
+                <textarea class="field" style="height:140px" placeholder="Cole ou digite o enunciado da questão…" value="@_eEnun"
+                          @oninput="e => _eEnun = V(e)" @ref="_eEnunEl"></textarea>
+                @if (_eTipo == "me")
+                {
+                    <div class="col" style="gap:6px;margin-top:8px">
+                        <div class="caption">ALTERNATIVAS</div>
+                        @for (int i = 0; i < 5; i++)
+                        {
+                            var ii = i;
+                            <div class="row" style="gap:8px">
+                                <span class="letter-dot">@LETTERS[ii]</span>
+                                <input class="field grow" placeholder="Texto da alternativa @LETTERS[ii]" value="@_eAlts[ii]" @oninput="e => _eAlts[ii] = V(e)" />
+                            </div>
+                        }
+                    </div>
+                }
+                <div class="caption" style="margin-top:6px">GABARITO</div>
+                <div class="row" style="gap:6px">
+                    @foreach (var (key, txt) in GabOpts())
+                    {
+                        var k = key;
+                        <button class="letter @(_eGab == k ? "on" : "")" @onclick="() => _eGab = k">@txt</button>
+                    }
+                </div>
+                <div class="row" style="gap:8px;margin-top:10px">
+                    <button class="btn danger" disabled="@(_cur == null)" @onclick="DeleteQ"><Ic N="delete-outline" C="@(_cur == null ? T["faint"] : T["danger"])" S="16" /><span>Excluir</span></button>
+                    <span class="sp"></span>
+                    <span class="faint">Ctrl+S salva</span>
+                    <button class="btn primary" @onclick="SaveQ"><Ic N="content-save-outline" C="#fff" S="16" /><span>Salvar questão</span></button>
+                </div>
+            </div>
+        }
+
+        @* ─────────────── comentários *@
+        @if (_cur != null)
+        {
+            var cm = _cur.A("comments").List();
+            var ccol = AreaColor(_cur.S("area"));
+            <div class="card col" style="gap:12px;padding:20px 24px">
+                <div class="row" style="gap:8px">
+                    <div class="h2">Comentários</div>
+                    <span class="badge">@cm.Count</span>
+                </div>
+                @if (cm.Count == 0)
+                {
+                    <div class="faint">Nenhum comentário ainda.</div>
+                }
+                @foreach (var c in cm)
+                {
+                    var cc = c;
+                    <div class="comment">
+                        <div class="icon-badge" style="width:32px;height:32px;border-radius:16px;background:@Tint(ccol, .82)"><Ic N="comment-quote-outline" C="@Ink(ccol, .15)" S="16" /></div>
+                        <div class="col grow" style="gap:3px;min-width:0">
+                            <div class="row">
+                                <span class="caption">@FmtDt(c.S("date"))</span>
+                                <span class="sp"></span>
+                                <button class="tool sm" title="Editar" @onclick="() => EditComment(cc)"><Ic N="pencil-outline" C="@T["muted"]" S="15" /></button>
+                                <button class="tool sm" title="Excluir" @onclick="() => DelComment(cc)"><Ic N="delete-outline" C="@T["danger"]" S="15" /></button>
+                            </div>
+                            <div class="wrap pre" style="user-select:text">@c.S("text")</div>
+                        </div>
+                    </div>
+                }
+                <textarea class="field" style="height:84px" placeholder="Anote fundamentos, artigos de lei, macetes…  (Ctrl+Enter para enviar)"
+                          value="@_cInput" @oninput="e => _cInput = V(e)" @onkeydown="CommentKey"></textarea>
+                <div class="row"><span class="sp"></span><button class="btn primary" @onclick="AddComment"><Ic N="send-outline" C="#fff" S="16" /><span>Comentar</span></button></div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    protected override string PageKey => "questoes";
+
+    static readonly (string, string, string)[] StatusOpts = { ("all", "Todas", null), ("pend", "Pendentes", null), ("ok", "Acertos", null), ("err", "Erros", null) };
+    static readonly (string, string, string)[] ModeOpts = { ("solve", "Resolver", "play-circle-outline"), ("edit", "Editar", "pencil-outline") };
+    static readonly (string, string, string)[] TipoOpts = { ("me", "Múltipla escolha", null), ("ce", "Certo ou Errado", null) };
+
+    JsonArray Qs => Store.Data.A("questions");
+    JsonObject AColors => Store.Data.O("area_colors");
+    JsonObject _cur;
+    string _fArea, _fTema, _fStatus = "all", _q = "", _mode = "solve", _revealed;
+    string _dTitle = "Nova questão", _dMeta = "Preencha os campos e salve";
+    string _eArea = "", _eTema = "", _eBanca = "", _eAno = "", _eEnun = "", _eTipo = "me", _eGab = "", _cInput = "";
+    readonly string[] _eAlts = new string[5];
+    SearchBox _fSearch;
+    ElementReference _colorBtn, _eAreaEl, _eEnunEl;
+
+    static string NullIfEmpty(object v) => string.IsNullOrEmpty(v?.ToString()) ? null : v.ToString();
+
+    protected override void Init()
+    {
+        if (Qs.Count > 0) OpenQ((JsonObject)Qs[Qs.Count - 1]);
+        else NewQ();
+    }
+
+    string AreaColor(string area)
+    {
+        if (string.IsNullOrEmpty(area)) return T["faint"];
+        if (!AColors.ContainsKey(area)) AColors[area] = PALETTE[(AColors.Count + 3) % PALETTE.Length];
+        return AColors.S(area);
+    }
+
+    string AreaSwatch
+    {
+        get
+        {
+            var a = _eArea.Trim();
+            return a.Length > 0 && AColors.ContainsKey(a) ? AColors.S(a) : T["faint"];
+        }
+    }
+
+    List<string> Areas() => Qs.Objs().Select(q => q.S("area")).Where(a => a.Length > 0).Distinct().OrderBy(a => a.ToLowerInvariant()).ToList();
+
+    List<string> Temas(string area) => Qs.Objs().Where(q => q.S("tema").Length > 0 && (area == null || q.S("area") == area)).Select(q => q.S("tema"))
+        .Distinct().OrderBy(t => t.ToLowerInvariant()).ToList();
+
+    List<JsonObject> Filtered()
+    {
+        var a = _fArea;
+        var tm = _fTema;
+        var st = _fStatus;
+        var s = (_q ?? "").Trim().ToLowerInvariant();
+        var outp = new List<JsonObject>();
+        foreach (var q in Qs.Objs())
+        {
+            if (a != null && q.S("area") != a) continue;
+            if (tm != null && q.S("tema") != tm) continue;
+            var r = q.S("resultado");
+            if ((st == "pend" && r.Length > 0) || (st == "ok" && r != "ok") || (st == "err" && r != "err")) continue;
+            if (s.Length > 0)
+            {
+                var blob = string.Join(" ", new[] { q.S("area"), q.S("tema"), q.S("banca"), q.S("ano"), q.S("enunciado") }
+                    .Concat(q.A("alternativas").Strs()).Concat(q.A("comments").Objs().Select(c => c.S("text")))).ToLowerInvariant();
+                if (!blob.Contains(s)) continue;
+            }
+            outp.Add(q);
+        }
+        return outp;
+    }
+
+    // ─────────────────────────── formulário
+    async Task AreaColorMenu()
+    {
+        await Win.ShowMenuAt(Ui.ColorMenu(new ColorSpec
+        {
+            Colors = PALETTE, Cols = 6, Title = "Cor da área", RecentKey = "entity", Current = AreaSwatch, Picked = c => _ = AreaColorChanged(c),
+        }), _colorBtn);
+    }
+
+    async Task AreaColorChanged(string c)
+    {
+        if (c == null) return;
+        var a = _eArea.Trim();
+        if (a.Length == 0)
+        {
+            await Win.Info("Cor da área", "Digite o nome da área antes de escolher a cor.");
+            return;
+        }
+        AColors[a] = c;
+        Win.Save();
+        Refresh();
+    }
+
+    void TipoChanged(string k)
+    {
+        _eTipo = k;
+        if (!GabOpts().Any(g => g.key == _eGab)) _eGab = "";
+    }
+
+    IEnumerable<(string key, string txt)> GabOpts() => _eTipo == "me"
+        ? LETTERS.Select(L => (L.ToString(), L.ToString()))
+        : new[] { ("C", "Certo"), ("E", "Errado") };
+
+    void FillForm(JsonObject q)
+    {
+        _eArea = q != null ? q.S("area") : (_fArea ?? "");
+        _eTema = q != null ? q.S("tema") : (_fTema ?? "");
+        _eBanca = q?.S("banca") ?? "";
+        _eAno = q?.S("ano") ?? "";
+        _eEnun = q?.S("enunciado") ?? "";
+        var alts = q != null ? q.A("alternativas").Strs() : new List<string>();
+        for (int i = 0; i < 5; i++) _eAlts[i] = i < alts.Count ? alts[i] : "";
+        var tipo = q != null ? q.S("tipo", "me") : "me";
+        if (tipo.Length == 0) tipo = "me";
+        _eTipo = tipo;
+        var g = q?.S("gabarito") ?? "";
+        _eGab = GabOpts().Any(x => x.key == g) ? g : "";
+    }
+
+    public void NewQ()
+    {
+        _cur = null;
+        FillForm(null);
+        _dTitle = "Nova questão";
+        _dMeta = "Preencha os campos e salve";
+        Post(async () =>
+        {
+            if (_eArea.Length == 0) await Js.Focus(_eAreaEl);
+            else await Js.Focus(_eEnunEl);
+        });
+    }
+
+    void OpenQ(JsonObject q)
+    {
+        _cur = q;
+        FillForm(q);
+        RenderHeader();
+        RenderSolve();
+        SetMode("solve");
+    }
+
+    void SetMode(string k)
+    {
+        _mode = k;
+        if (k == "edit" && _cur != null) FillForm(_cur);
+    }
+
+    void RenderHeader()
+    {
+        var q = _cur;
+        _dTitle = q.S("tema").Length > 0 ? q.S("tema") : q.S("area").Length > 0 ? q.S("area") : "Questão";
+        var hist = q.A("historico").Count;
+        _dMeta = $"Criada em {FmtDt(q.S("created"))}" + (hist > 0 ? $"   ·   respondida {hist}x" : "");
+    }
+
+    List<(string letter, string text, string disp)> OptionItems()
+    {
+        var q = _cur;
+        if (q.S("tipo") == "ce") return new() { ("C", "Certo", "C"), ("E", "Errado", "E") };
+        var alts = q.A("alternativas").Strs();
+        return alts.Select((a, i) => (LETTERS[Math.Min(i, 4)].ToString(), a, LETTERS[Math.Min(i, 4)].ToString())).Where(x => x.Item2.Length > 0).ToList();
+    }
+
+    string OptState(string letter)
+    {
+        if (_revealed == null) return "normal";
+        var gab = _cur.S("gabarito");
+        return letter == gab ? "correct" : letter == _revealed ? "wrong" : "dim";
+    }
+
+    string Hint()
+    {
+        if (OptionItems().Count == 0) return "Esta questão não tem alternativas. Use “Editar” para cadastrá-las.";
+        if (_cur.S("gabarito").Length == 0) return "Cadastre o gabarito em “Editar” para conferir sua resposta.";
+        return "Clique numa alternativa para responder.";
+    }
+
+    void RenderSolve()
+    {
+        var q = _cur;
+        _revealed = null;
+        var resp = q.S("resposta");
+        if (resp.Length > 0 && q.S("gabarito").Length > 0) _revealed = resp;
+    }
+
+    void Answer(string letter)
+    {
+        var q = _cur;
+        if (q == null || q.S("gabarito").Length == 0 || _revealed != null) return;
+        bool ok = letter == q.S("gabarito");
+        _revealed = letter;
+        q["resposta"] = letter;
+        q["resultado"] = ok ? "ok" : "err";
+        q.A("historico").Add(new JsonObject { ["d"] = NowIso(), ["ok"] = ok });
+        Win.Save();
+        RenderHeader();
+        Win.RefreshCounts();
+    }
+
+    void Retry()
+    {
+        if (_cur == null) return;
+        _cur["resposta"] = null;
+        Win.Save();
+        RenderSolve();
+    }
+
+    async Task SaveQ()
+    {
+        var area = _eArea.Trim();
+        var enun = _eEnun.Trim();
+        if (area.Length == 0 || enun.Length == 0)
+        {
+            await Win.Info("Faltam informações", "Preencha pelo menos a área e o enunciado.", "alert-outline");
+            return;
+        }
+        var n = NowIso();
+        bool isNew = _cur == null;
+        if (isNew)
+        {
+            _cur = new JsonObject
+            {
+                ["id"] = Uid(), ["created"] = n, ["comments"] = new JsonArray(), ["historico"] = new JsonArray(), ["resultado"] = "",
+                ["resposta"] = null,
+            };
+            Qs.Add(_cur);
+        }
+        var q = _cur;
+        var tipo = _eTipo;
+        var alts = _eAlts.Select(e => (e ?? "").Trim()).ToList();
+        while (alts.Count > 0 && alts[^1].Length == 0) alts.RemoveAt(alts.Count - 1);
+        var old = (q.S("gabarito"), q.S("tipo"), string.Join("\u0001", q.A("alternativas").Strs()));
+        q["area"] = area;
+        q["tema"] = _eTema.Trim();
+        q["banca"] = _eBanca.Trim();
+        q["ano"] = _eAno.Trim();
+        q["tipo"] = tipo;
+        q["enunciado"] = enun;
+        q["alternativas"] = J.Arr(tipo == "me" ? alts : new List<string>());
+        q["gabarito"] = GabOpts().Any(g => g.key == _eGab) ? _eGab : "";
+        q["updated"] = n;
+        if (old != (q.S("gabarito"), q.S("tipo"), string.Join("\u0001", q.A("alternativas").Strs()))) q["resposta"] = null;
+        AreaColor(area);
+        Win.Save();
+        OpenQ(q);
+        Win.Toast(!isNew ? "Questão salva" : "Questão criada");
+        Win.RefreshCounts();
+    }
+
+    async Task DeleteQ()
+    {
+        if (_cur == null) return;
+        if (!await Win.Confirm("Excluir questão?", "A questão e seus comentários serão excluídos.")) return;
+        Qs.Remove(_cur);
+        _cur = null;
+        Win.Save();
+        var items = Filtered();
+        if (items.Count > 0) OpenQ(items[^1]);
+        else NewQ();
+        Win.Toast("Questão excluída");
+        Win.RefreshCounts();
+    }
+
+    async Task EditKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.CtrlKey) await SaveQ();
+    }
+
+    // ─────────────────────────── comentários
+    async Task CommentKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && e.CtrlKey)
+        {
+            await Task.Delay(1);
+            AddComment();
+        }
+    }
+
+    void AddComment()
+    {
+        if (_cur == null) return;
+        var txt = (_cInput ?? "").Trim();
+        if (txt.Length == 0) return;
+        _cur.A("comments").Add(new JsonObject { ["id"] = Uid(), ["date"] = NowIso(), ["text"] = txt });
+        _cInput = "";
+        Win.Save();
+    }
+
+    async Task EditComment(JsonObject c)
+    {
+        var txt = await Win.Ask("Editar comentário", "", c.S("text"), multiline: true);
+        if (string.IsNullOrEmpty(txt)) return;
+        c["text"] = txt;
+        Win.Save();
+    }
+
+    async Task DelComment(JsonObject c)
+    {
+        if (!await Win.Confirm("Excluir comentário?", "Este comentário será removido.")) return;
+        _cur.A("comments").Remove(c);
+        Win.Save();
+    }
+
+    public override void FocusSearch() => _ = _fSearch.FocusAll();
+    public override void CtrlN() => NewQ();
+
+    public override void CtrlS()
+    {
+        if (_cur == null || _mode == "edit") _ = SaveQ();
+    }
+}

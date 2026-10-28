@@ -1,0 +1,46 @@
+@inject Js Js
+@implements IAsyncDisposable
+<iframe @ref="_frame" class="viewframe @Class" style="@Style" title="Documento"></iframe>
+@code {
+    static int _n;
+    readonly string _id = "hv" + (++_n);
+    ElementReference _frame;
+    DotNetObjectReference<HtmlView> _ref;
+    bool _attached;
+    string _pending;
+
+    [Parameter] public EventCallback<string> OnLinkClicked { get; set; }
+    [Parameter] public string Class { get; set; }
+    [Parameter] public string Style { get; set; }
+    [Parameter] public string Css { get; set; } = "";
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (!first) return;
+        _ref = DotNetObjectReference.Create(this);
+        _attached = true;
+        if (_pending != null)
+        {
+            var p = _pending;
+            _pending = null;
+            await Js.ViewSet(_id, _frame, _ref, p);
+        }
+    }
+
+    /// <summary>Mostra um documento HTML completo ou um trecho.</summary>
+    public async Task SetHtml(string html, bool full = false, string font = null, double pt = 10, string color = "#1f2d3d", string margin = "14px")
+    {
+        var doc = full ? html : Web.Page(html, $"body{{margin:{margin};}}" + Css, font ?? UI_FONT, pt, color);
+        if (!_attached) _pending = doc;
+        else await Js.ViewSet(_id, _frame, _ref, doc);
+    }
+
+    [JSInvokable]
+    public async Task OnLink(string href) => await OnLinkClicked.InvokeAsync(href);
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await Js.Detach(_id); } catch { }
+        _ref?.Dispose();
+    }
+}

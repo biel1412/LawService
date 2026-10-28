@@ -1,0 +1,151 @@
+@inherits TutBase
+@*  TUTORIA OAB — página de solicitação de tutoria da 2ª fase. *@
+
+<div class="scroll" style="width:100%;background:@T["bg"]">
+    <div class="center-col" style="max-width:1180px;padding:26px 32px 36px;gap:18px">
+        @* ─────────── destaque *@
+        <div class="hero">
+            <div class="col grow" style="gap:10px">
+                <span class="hero-tag">TUTORIA INDIVIDUAL · 2ª FASE</span>
+                <div class="hero-title">Tutoria OAB — 2ª fase</div>
+                <div class="wrap" style="font-size:@Ui.Pt(11);color:#d9dcf5">
+                    Um professor acompanha você na peça prático-profissional e nas questões discursivas: plano de estudos, correções com
+                    devolutiva e encontros por videochamada até o dia da prova.
+                </div>
+                <div class="row" style="gap:10px;margin-top:6px;flex-wrap:wrap">
+                    <button class="hbtn" style="color:@T["accent"];--hov:@T["accent_soft"]" @onclick="Solicitar"><Ic N="send-outline" C="@T["accent"]" S="17" /><span>Solicitar tutoria</span></button>
+                    <button class="hbtn alt" @onclick='() => Win.ShowPage("estagio")'><Ic N="briefcase-outline" C="#fff" S="17" /><span>Treinar no Estágio simulado</span></button>
+                </div>
+                @{
+                    var d = Store.Settings.S("tutoria_solicitada");
+                }
+                @if (d.Length > 0)
+                {
+                    <div class="wrap" style="color:#c9cdf0;font-size:@Ui.Pt(9)">Você abriu o formulário de tutoria em @FmtDt(d). Aguarde o contato do professor.</div>
+                }
+            </div>
+            <div style="width:150px;height:150px;border-radius:75px;background:rgba(255,255,255,0.08);flex:none;display:flex;align-items:center;justify-content:center">
+                <Ic N="scale-balance" C="#fff" S="76" />
+            </div>
+        </div>
+
+        @SectionTitle("Como funciona a tutoria", "Do formulário à aprovação, com acompanhamento individual de um professor")
+        @Steps(new[]
+        {
+            ("form-select", "Você preenche o formulário",
+                "Nome, contato, área escolhida para a 2ª fase, número do exame, se é repescagem e sua disponibilidade."),
+            ("phone-in-talk-outline", "O professor entra em contato",
+                "Por WhatsApp ou e-mail, para uma conversa inicial e um diagnóstico do seu nível na área."),
+            ("map-marker-path", "Plano de estudos sob medida",
+                "Cronograma até a prova, com as peças e temas que mais caem na sua área e as suas lacunas."),
+            ("video-outline", "Encontros por videochamada",
+                "Aulas individuais para tirar dúvidas, treinar a identificação da peça e revisar a técnica."),
+            ("file-check-outline", "Correções com devolutiva",
+                "Você escreve peças e questões no formato da FGV; o professor corrige pelo padrão do espelho e comenta cada ponto."),
+            ("timer-outline", "Simulados com tempo de prova",
+                "Provas completas de 5 horas para treinar a gestão do tempo e chegar seguro ao dia do exame."),
+        }, T["accent"])
+
+        @SectionTitle("O que vai ser abordado", "Conteúdo focado no que a banca cobra e no que mais derruba candidatos")
+        @Topics(new[]
+        {
+            ("magnify-scan", "#5b5ef0", "Identificação da peça",
+                "O erro que mais reprova: como ler o enunciado, achar o momento processual e escolher a peça certa."),
+            ("file-tree-outline", "#8b5cf6", "Estrutura das peças",
+                "Endereçamento, qualificação, fatos, fundamentos, pedidos e fechamento — e as peças típicas da sua área."),
+            ("comment-question-outline", "#1c7ed6", "Questões discursivas",
+                "Responder de forma objetiva, sempre com o fundamento legal, para pontuar em cada item do espelho."),
+            ("book-open-variant", "#2f9e44", "Uso do Vade Mecum",
+                "Como consultar rápido a legislação permitida, organizar remissões e índices dentro das regras do edital."),
+            ("timer-sand", "#f08c00", "Gestão do tempo",
+                "Distribuir as 5 horas entre peça e questões, rascunho e passagem a limpo sem estourar o tempo."),
+            ("clipboard-check-outline", "#e5484d", "Espelho de correção e recursos",
+                "Como a FGV pontua, os erros que zeram itens, a regra de não se identificar e como recorrer da nota."),
+        }, .86, false)
+
+        @SectionTitle("Como é a 2ª fase da OAB", "Prova prático-profissional aplicada pela FGV")
+        <div class="row" style="gap:14px;align-items:stretch">
+            <div class="card col" style="flex:5;gap:14px;padding:20px 22px">
+                <div class="h2">Composição da nota</div>
+                <div class="row" style="height:44px;gap:4px;align-items:stretch">
+                    <div style="flex:4;background:@T["accent"];color:#fff;border-radius:10px;font-weight:800;display:flex;align-items:center;justify-content:center">Peça · 5,0</div>
+                    @for (int i = 0; i < 4; i++)
+                    {
+                        <div style="flex:1;background:@Mix(T["accent2"], "#ffffff", .2 + i * .12);color:#fff;border-radius:10px;font-weight:700;font-size:@Ui.Pt(8.5);display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.2">Q@(i + 1)<br />1,25</div>
+                    }
+                </div>
+                <div class="muted wrap">Peça prático-profissional (5,0 pontos) + 4 questões discursivas (1,25 cada, 5,0 no total). Nota máxima 10,0; <b>aprovação com 6,0</b>.</div>
+            </div>
+            <div class="card grid2" style="flex:7;gap:12px 14px;padding:20px 22px">
+                @foreach (var (icn, k, val) in Facts)
+                {
+                    <div class="row top" style="gap:10px">
+                        <div class="icon-badge" style="width:32px;height:32px;border-radius:9px;background:@T["accent_soft"]"><Ic N="@icn" C="@T["accent"]" S="17" /></div>
+                        <div class="col grow">
+                            <div class="caption">@k.ToUpper()</div>
+                            <div class="wrap">@val</div>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @SectionTitle("As 7 áreas e peças mais comuns", "A área é escolhida na inscrição — a tutoria é feita na área que você escolheu")
+        <div class="grid2" style="gap:12px">
+            @foreach (var (nome, col, pecas) in OAB_AREAS)
+            {
+                <div class="stripcard col" style="--strip:@col;gap:6px;padding:14px 16px 14px 18px;cursor:default">
+                    <div class="h3">@nome</div>
+                    <div class="muted wrap">@pecas</div>
+                </div>
+            }
+        </div>
+
+        @Cta("account-tie-voice-outline", T["accent"], "Pronto para começar?", Configurar, Solicitar)
+        <div class="faint wrap">As regras da prova podem mudar a cada edição. Confira sempre o edital do Exame de Ordem publicado pela OAB e pela FGV.</div>
+    </div>
+</div>
+
+@code {
+    protected override string PageKey => "oab";
+
+    /// <summary>Link do formulário de solicitação de tutoria. Coloque aqui o seu link para todos os alunos.</summary>
+    public const string TUTORIA_URL = "";
+
+    public static readonly (string nome, string cor, string pecas)[] OAB_AREAS =
+    {
+        ("Direito Penal", "#e5484d", "Resposta à acusação, memoriais, apelação, recurso em sentido estrito, habeas corpus, "
+                                     + "revisão criminal, agravo em execução"),
+        ("Direito Civil", "#d6409f", "Petição inicial, contestação, apelação, agravo de instrumento, embargos à execução, "
+                                     + "ações de família e consumo"),
+        ("Direito do Trabalho", "#2f9e44", "Reclamação trabalhista, contestação, recurso ordinário, recurso de revista, "
+                                           + "embargos à execução, consignação em pagamento"),
+        ("Direito Tributário", "#15aabf", "Mandado de segurança, ação anulatória, repetição de indébito, embargos à "
+                                          + "execução fiscal, exceção de pré-executividade"),
+        ("Direito Constitucional", "#1c7ed6", "Mandado de segurança, habeas data, mandado de injunção, ação popular, ação "
+                                              + "civil pública, ações do controle concentrado, recurso extraordinário"),
+        ("Direito Empresarial", "#f76707", "Ações societárias, recuperação judicial, falência, títulos de crédito, "
+                                           + "contratos empresariais, propriedade industrial"),
+        ("Direito Administrativo", "#5b5ef0", "Mandado de segurança, ação ordinária contra o Poder Público, "
+                                              + "responsabilidade do Estado, licitações, defesa em improbidade"),
+    };
+
+    static readonly (string, string, string)[] Facts =
+    {
+        ("domain", "Banca", "FGV"),
+        ("clock-outline", "Duração", "5 horas"),
+        ("target", "Nota mínima", "6,0 de 10,0"),
+        ("shape-outline", "Áreas", "7, escolhida na inscrição"),
+        ("book-outline", "Consulta", "Legislação sem anotações ou comentários"),
+        ("refresh", "Repescagem", "Aprovado na 1ª fase pode ir direto à 2ª no exame seguinte"),
+        ("account-cancel-outline", "Identificação", "Qualquer marca ou nome na prova leva à anulação"),
+        ("gavel", "Recurso", "É possível recorrer da nota após o resultado preliminar"),
+    };
+
+    public static string TutoriaUrl() => TUTORIA_URL.Length > 0 ? TUTORIA_URL : Store.Settings.S("tutoria_url");
+
+    Task Solicitar() => Solicitar(TutoriaUrl(), "tutoria", "tutoria_solicitada", Configurar);
+
+    Task Configurar() => Configurar(TUTORIA_URL, "Link do formulário de tutoria",
+        "Cole o link do formulário (Google Forms, Typeform…).", "tutoria_url", "tutoria");
+}

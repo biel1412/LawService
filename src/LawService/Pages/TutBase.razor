@@ -1,0 +1,88 @@
+@inherits PageBase
+@* Base das páginas de tutoria: blocos visuais compartilhados *@
+@code {
+    protected override string PageKey => "";
+
+    protected RenderFragment SectionTitle(string t, string sub) => __builder =>
+    {
+        <div class="col" style="gap:2px;padding:10px 0 0 2px">
+            <div class="h1">@t</div>
+            <div class="muted">@sub</div>
+        </div>
+    };
+
+    protected RenderFragment Steps((string icon, string t, string d)[] steps, string iconColor) => __builder =>
+    {
+        <div class="card grid2" style="padding:20px 22px">
+            @for (int i = 0; i < steps.Length; i++)
+            {
+                var (icn, t, d) = steps[i];
+                <div class="row top" style="gap:12px">
+                    <span class="num-circle">@(i + 1)</span>
+                    <div class="col grow" style="gap:3px">
+                        <div class="row" style="gap:6px"><Ic N="@icn" C="@iconColor" S="16" /><span class="h3">@t</span></div>
+                        <div class="muted wrap">@d</div>
+                    </div>
+                </div>
+            }
+        </div>
+    };
+
+    protected RenderFragment Topics((string icon, string color, string t, string d)[] topics, double tint, bool ink) => __builder =>
+    {
+        <div class="grid3">
+            @foreach (var (icn, col, t, d) in topics)
+            {
+                <div class="card col" style="gap:8px;padding:16px 18px 18px">
+                    <div class="icon-badge" style="width:40px;height:40px;border-radius:12px;background:@Tint(col, tint)"><Ic N="@icn" C="@(ink ? Ink(col) : col)" S="22" /></div>
+                    <div class="h3">@t</div>
+                    <div class="muted wrap">@d</div>
+                </div>
+            }
+        </div>
+    };
+
+    protected RenderFragment Cta(string icon, string iconColor, string title, Func<Task> configurar, Func<Task> solicitar) => __builder =>
+    {
+        <div class="card row" style="gap:16px;padding:20px 24px">
+            <div class="icon-badge" style="width:48px;height:48px;border-radius:14px;background:@T["accent_soft"]"><Ic N="@icon" C="@iconColor" S="26" /></div>
+            <div class="col grow" style="gap:2px">
+                <div class="h2">@title</div>
+                <div class="muted wrap">Preencha o formulário. O professor entra em contato para combinar o início da tutoria.</div>
+            </div>
+            <button class="tool" title="Configurar link do formulário" @onclick="configurar"><Ic N="cog-outline" C="@T["muted"]" /></button>
+            <button class="btn primary" @onclick="solicitar"><Ic N="send-outline" C="#fff" S="16" /><span>Solicitar tutoria</span></button>
+        </div>
+    };
+
+    protected async Task Solicitar( string url, string what, string key, Func<Task> configurar)
+    {
+        if (string.IsNullOrEmpty(url))
+        {
+            if (await Win.Confirm("Link não configurado", $"O link do formulário de {what} ainda não foi cadastrado. Deseja informar agora?",
+                    ok: "Configurar", danger: false, icon: "link-variant"))
+                await configurar();
+            return;
+        }
+        await Js.OpenUrl(url);
+        Store.Settings[key] = NowIso();
+        Win.Save();
+        Win.Toast("Formulário aberto no navegador");
+    }
+
+    protected async Task Configurar( string fixedUrl, string title, string text, string key, string what)
+    {
+        if (!string.IsNullOrEmpty(fixedUrl))
+        {
+            await Win.Info("Link definido", $"O link da {what} já vem configurado no aplicativo.", "link-variant");
+            return;
+        }
+        var u = await Win.Ask(title, text, Store.Settings.S(key), icon: "link-variant", placeholder: "https://…");
+        if (u == null) return;
+        u = u.Trim();
+        if (u.Length > 0 && !Regex.IsMatch(u, "^https?://")) u = "https://" + u;
+        Store.Settings[key] = u;
+        Win.Save();
+        Win.Toast("Link salvo");
+    }
+}

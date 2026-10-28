@@ -1,0 +1,26 @@
+<div class="seg @Class">
+    @foreach (var o in Options)
+    {
+        var k = o.key;
+        var on = k == Value;
+        <button class="@(on ? "on" : "")" @onclick="() => Pick(k)">
+            @if (o.icon != null)
+            {
+                <Ic N="@o.icon" C="@(on ? T["accent"] : T["muted"])" S="15" />
+            }
+            <span>@o.text</span>
+        </button>
+    }
+</div>
+@code {
+    [Parameter] public IEnumerable<(string key, string text, string icon)> Options { get; set; }
+    [Parameter] public string Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Class { get; set; }
+
+    async Task Pick(string k)
+    {
+        Value = k;
+        await ValueChanged.InvokeAsync(k);
+    }
+}

@@ -1,0 +1,126 @@
+@inherits TutBase
+@*  TUTORIA DE TCC — página de solicitação (reaproveita o visual da Tutoria OAB). *@
+
+<div class="scroll" style="width:100%;background:@T["bg"]">
+    <div class="center-col" style="max-width:1180px;padding:26px 32px 36px;gap:18px">
+        @{
+            var tcc = Store.Data["tcc"] as JsonObject ?? new JsonObject();
+            var parts = tcc.A("parts").Objs().ToList();
+            int words = parts.Sum(p => Words(p.S("plain")));
+            int meta = tcc.O("meta").I("meta_palavras");
+            int prontas = parts.Count(p => p.S("status") == "pronto");
+            var d = Store.Settings.S("tutoria_tcc_solicitada");
+        }
+        <div class="hero">
+            <div class="col grow" style="gap:10px">
+                <span class="hero-tag">ORIENTAÇÃO INDIVIDUAL · DO TEMA À BANCA</span>
+                <div class="hero-title">Tutoria de TCC</div>
+                <div class="wrap" style="font-size:@Ui.Pt(11);color:#f0d6da">
+                    Um professor acompanha todo o seu projeto: orienta cada etapa, lê o que você escreve, acompanha o resultado e devolve
+                    feedbacks claros para você evoluir com segurança até a defesa.
+                </div>
+                <div class="row" style="gap:10px;margin-top:6px;flex-wrap:wrap">
+                    <button class="hbtn" style="color:@T["accent2"]" @onclick="Solicitar"><Ic N="send-outline" C="@T["accent2"]" S="17" /><span>Solicitar tutoria de TCC</span></button>
+                    <button class="hbtn alt" @onclick='() => Win.ShowPage("tcc")'><Ic N="school-outline" C="#fff" S="17" /><span>Abrir meu TCC</span></button>
+                </div>
+                @if (d.Length > 0)
+                {
+                    <div class="wrap" style="color:#f0d6da;font-size:@Ui.Pt(9)">Você abriu o formulário de tutoria em @FmtDt(d). Aguarde o contato do professor.</div>
+                }
+            </div>
+            <div class="col" style="width:230px;flex:none;gap:6px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.14);border-radius:16px;padding:16px 18px">
+                <div style="font-size:@Ui.Pt(8);font-weight:700;color:#f0c8cf">SEU TCC HOJE</div>
+                <div style="font-size:@Ui.Pt(20);font-weight:800;color:#fff">@Thousands(words) palavras</div>
+                <div class="wrap" style="font-size:@Ui.Pt(9);color:#f0d6da">@prontas de @parts.Count partes prontas · @tcc.A("cits").Count citações</div>
+                <div style="height:6px;border-radius:3px;background:rgba(255,255,255,0.15);overflow:hidden">
+                    <div style="height:100%;border-radius:3px;background:#fff;width:@(meta > 0 ? Math.Min(100.0, 100.0 * words / meta) : 0)%"></div>
+                </div>
+            </div>
+        </div>
+
+        @SectionTitle("Como funciona a tutoria", "Acompanhamento individual do tema à defesa")
+        @Steps(new[]
+        {
+            ("form-select", "Você preenche o formulário",
+                "Curso, instituição, semestre, tema (ou ideia inicial), prazos de entrega e defesa e sua disponibilidade."),
+            ("phone-in-talk-outline", "O professor entra em contato",
+                "Por WhatsApp ou e-mail, para uma conversa inicial sobre o tema, as exigências da faculdade e seus objetivos."),
+            ("calendar-month-outline", "Diagnóstico e cronograma",
+                "Um plano com marcos até o depósito e a defesa, compatível com as regras do seu curso e do orientador."),
+            ("video-outline", "Encontros de orientação",
+                "Videochamadas periódicas para decidir os próximos passos, destravar dúvidas e revisar o andamento."),
+            ("message-draw", "Leitura e feedback dos capítulos",
+                "O professor lê cada parte que você escreve e devolve comentários sobre argumentação, estrutura, fontes e ABNT."),
+            ("human-male-board", "Preparação para a banca",
+                "Roteiro da apresentação, slides e simulação de arguição com as perguntas mais prováveis."),
+        }, Ink(T["accent"]))
+
+        @SectionTitle("As etapas do seu TCC", "O professor acompanha cada uma delas com você")
+        <div class="card row top" style="gap:4px;padding:18px">
+            @for (int i = 0; i < Etapas.Length; i++)
+            {
+                var (icn, t) = Etapas[i];
+                <div class="col grow" style="gap:6px;align-items:center">
+                    <div class="icon-badge" style="width:46px;height:46px;border-radius:23px;background:@Tint(T["accent"], .8);border:1px solid @T["accent_soft2"]"><Ic N="@icn" C="@Ink(T["accent"])" S="22" /></div>
+                    <div class="center" style="font-weight:600;font-size:@Ui.Pt(9)">@t</div>
+                </div>
+                @if (i < Etapas.Length - 1)
+                {
+                    <Ic N="chevron-right" C="@T["faint"]" S="18" Style="margin-top:14px" />
+                }
+            }
+        </div>
+
+        @SectionTitle("O que vai ser abordado", "Orientação de conteúdo, método e forma")
+        @Topics(new[]
+        {
+            ("lightbulb-on-outline", "#f0a03a", "Tema e problema de pesquisa",
+                "Delimitar um tema viável e relevante, formular a pergunta de pesquisa e a hipótese."),
+            ("file-document-outline", "#c23a48", "Projeto de pesquisa",
+                "Objetivos, justificativa, metodologia, sumário provisório e cronograma."),
+            ("book-search-outline", "#4c9ee8", "Pesquisa de fontes",
+                "Doutrina, jurisprudência, legislação e bases acadêmicas; como fichar e organizar as citações."),
+            ("pencil-ruler", "#46b65a", "Escrita jurídico-acadêmica",
+                "Argumentação, coesão entre capítulos, introdução e conclusão que conversam entre si."),
+            ("format-list-numbered", "#a36bd8", "Normas ABNT",
+                "Citações (NBR 10520), referências (NBR 6023) e formatação do trabalho (NBR 14724)."),
+            ("account-voice", "#e07a3f", "Defesa perante a banca",
+                "Apresentação objetiva, gestão do tempo e respostas seguras às perguntas da banca."),
+        }, .8, true)
+
+        <div class="stripcard row top" style="--strip:@T["success"];gap:14px;padding:16px 20px 16px 22px;cursor:default;border-radius:14px">
+            <div class="icon-badge" style="width:42px;height:42px;border-radius:12px;background:@T["success_soft"]"><Ic N="shield-check-outline" C="@T["success"]" S="22" /></div>
+            <div class="col grow" style="gap:3px">
+                <div class="h3">O trabalho é seu</div>
+                <div class="muted wrap">
+                    A tutoria orienta, acompanha e dá feedback — a pesquisa, as ideias e a escrita são suas. Tudo respeita as regras de integridade
+                    acadêmica da sua instituição e o papel do seu orientador oficial.
+                </div>
+            </div>
+        </div>
+
+        @Cta("account-school-outline", Ink(T["accent"]), "Vamos tirar seu TCC do papel?", Configurar, Solicitar)
+    </div>
+</div>
+
+@code {
+    protected override string PageKey => "tutcc";
+
+    /// <summary>Link do formulário de solicitação de tutoria de TCC. Coloque aqui o seu link para todos os alunos.</summary>
+    public const string TUTORIA_TCC_URL = "";
+
+    static readonly (string, string)[] Etapas =
+    {
+        ("lightbulb-on-outline", "Tema e problema"), ("file-document-outline", "Projeto"), ("book-search-outline", "Pesquisa"),
+        ("pencil-ruler", "Escrita"), ("text-search", "Revisão"), ("file-certificate-outline", "Depósito"), ("account-voice", "Defesa"),
+    };
+
+    public static string TutoriaTccUrl() => TUTORIA_TCC_URL.Length > 0 ? TUTORIA_TCC_URL : Store.Settings.S("tutoria_tcc_url");
+
+    Task Solicitar() => Solicitar(TutoriaTccUrl(), "tutoria de TCC", "tutoria_tcc_solicitada", Configurar);
+
+    Task Configurar() => Configurar(TUTORIA_TCC_URL, "Link do formulário de tutoria de TCC",
+        "Cole o link do formulário.", "tutoria_tcc_url", "tutoria de TCC");
+
+    public override void OnShown() => Refresh();
+}

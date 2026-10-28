@@ -1,0 +1,14 @@
+<HtmlView @ref="_v" />
+@code {
+    HtmlView _v;
+    [Parameter] public string Html { get; set; }
+    [Parameter] public string Font { get; set; } = SERIF;
+    [Parameter] public double Pt { get; set; } = 12;
+    [Parameter] public string Color { get; set; } = "#1a1a1a";
+    [Parameter] public string Margin { get; set; } = "56px";
+
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if (first) await _v.SetHtml(Html, font: Font, pt: Pt, color: Color, margin: Margin);
+    }
+}

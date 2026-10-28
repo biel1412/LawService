@@ -1,0 +1,774 @@
+@inherits PageBase
+@using static LawService.EstHtml
+@*  ESTÁGIO SIMULADO — e-mails do escritório, processo no SIPE e redação da peça. *@
+
+<div class="side" style="width:360px">
+    <div class="col side-in" style="gap:12px;padding:20px 12px 12px 16px">
+        <div class="panel-head">
+            <div class="h1">Estágio</div>
+            <span class="sp"></span>
+            <button class="btn primary" @ref="_newBtn" @onclick="NewMenu"><Ic N="email-plus-outline" C="#fff" S="16" /><span>Novo caso</span></button>
+        </div>
+        @{
+            var nome = EstSettings().S("estagiario");
+            if (string.IsNullOrEmpty(nome)) nome = "Estagiário(a)";
+            int ent = Cases.Objs().Count(c => c.S("status") == "entregue");
+        }
+        <div class="card row" style="gap:10px;padding:10px 8px 10px 12px">
+            <span class="avatar" style="width:36px;height:36px;background:@Grad(T["accent"], T["accent2"])">@Initials(nome)</span>
+            <div class="col grow">
+                <div class="h3 ell">@nome</div>
+                <div class="faint">Estagiário(a) · @ent peça(s) entregue(s)</div>
+            </div>
+            <button class="tool" title="Configurações do estágio" @onclick="OpenSettings"><Ic N="cog-outline" C="@T["muted"]" /></button>
+        </div>
+        <SearchBox @ref="_search" Placeholder="Buscar nos casos…" Value="@_q" ValueChanged="v => _q = v" />
+        <Segmented Options="FilterOpts" Value="@_filter" ValueChanged="v => _filter = v" />
+        <div class="caption">CAIXA DE ENTRADA</div>
+        @{
+            var q = (_q ?? "").Trim().ToLowerInvariant();
+            var shown = Cases.Objs().Reverse().Where(c =>
+                !(_filter == "abertos" && c.S("status") == "entregue") && !(_filter == "entregues" && c.S("status") != "entregue")
+                && (q.Length == 0 || (c.S("titulo") + c.A("emails").Objs().First().S("assunto") + c.S("area") + c.O("meta").S("numero")).ToLowerInvariant().Contains(q))).ToList();
+        }
+        <div class="scroll grow">
+            @foreach (var c in shown)
+            {
+                var cc = c;
+                var s = c.O("socio");
+                bool unread = !c.B("lido");
+                var emails = c.A("emails").List();
+                var (ptxt, pcol) = PrazoChip(c);
+                <div class="inbox @(c == _cur ? "sel" : "")" @onclick="async () => { if (cc != _cur) await OpenCase(cc); }"
+                     @oncontextmenu="e => InboxMenu(cc, e)" @oncontextmenu:preventDefault="true">
+                    <span class="avatar" style="width:38px;height:38px;background:@Grad(s.S("cor"), Mix(s.S("cor"), "#000000", .25))">@SocioInitials(s)</span>
+                    <div class="col grow" style="gap:3px">
+                        <div class="row" style="gap:6px">
+                            <span class="ell grow" style="font-weight:@(unread ? 700 : 500)">@s.S("nome")</span>
+                            <span class="faint">@FmtDt(emails[^1].S("data"), true)</span>
+                        </div>
+                        <div class="ell" style="font-weight:@(unread ? 700 : 500);color:@(unread ? T["text"] : T["text2"]);font-size:@Ui.Pt(9.5)">@emails[0].S("assunto")</div>
+                        <div class="row" style="gap:6px">
+                            <Chip Text="@Curta(c.S("area"))" Color="@AreaColor(c.S("area"))" />
+                            <Chip Text="@ptxt" Color="@pcol" Strong="true" />
+                            <span class="sp"></span>
+                            @if (unread)
+                            {
+                                <span class="unread-dot"></span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+            @if (shown.Count == 0)
+            {
+                <div class="faint center">Nenhum caso aqui.</div>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="main stack">
+    <div class="col grow" style="display:@(_cur != null ? "flex" : "none")">
+        @if (_cur != null)
+        {
+            var t = _cur.O("meta").O("tarefa");
+            var peca = t.S("peca").Split(" — ")[0].Split(" (")[0].Split(" com ")[0].Split(" contra ")[0];
+            var (ptxt, pcol) = PrazoChip(_cur);
+            <div class="toolbar">
+                <div class="col" style="gap:8px;padding:14px 20px 12px 26px">
+                    <div class="row top" style="gap:8px">
+                        <div class="h2 wrap grow">@_cur.S("titulo")</div>
+                        <button class="tool" title="Opções do caso" @ref="_moreBtn" @onclick="CaseMenu"><Ic N="dots-horizontal" C="@T["muted"]" /></button>
+                    </div>
+                    <div class="row" style="gap:6px">
+                        <div class="row grow" style="gap:6px;flex-wrap:wrap">
+                            <Chip Text="@Curta(_cur.S("area"))" Color="@_cur.O("socio").S("cor")" Strong="true" />
+                            <Chip Text="@peca" Color="@T["accent"]" Strong="true" />
+                            <Chip Text="@ptxt" Color="@pcol" Strong="true" />
+                        </div>
+                        <Segmented Options="ViewOpts" Value="@_view" ValueChanged="SetView" />
+                    </div>
+                </div>
+            </div>
+        }
+        <div class="stack grow">
+            @* ─────────── e-mail *@
+            <div class="scroll" @ref="_mailScroll" style="position:absolute;inset:0;background:@T["bg"];display:@(_view == "email" ? "block" : "none")">
+                @if (_cur != null)
+                {
+                    var c = _cur;
+                    var emails = c.A("emails").List();
+                    <div class="center-col" style="max-width:1000px;padding:22px 28px 28px;gap:14px">
+                        <div class="h1 wrap">@emails[0].S("assunto")</div>
+                        @for (int i = 0; i < emails.Count; i++)
+                        {
+                            var msg = emails[i];
+                            string[] acoes = null;
+                            if (i == 0) acoes = c.S("status") != "entregue" ? new[] { "processo", "redigir" } : new[] { "processo" };
+                            else if (msg.S("tipo") == "socio" && c.S("status") == "entregue") acoes = new[] { "correcao" };
+                            @Message(c, msg, acoes)
+                        }
+                    </div>
+                }
+            </div>
+            @* ─────────── processo *@
+            <div style="position:absolute;inset:0;padding:18px 22px;display:@(_view == "processo" ? "block" : "none")">
+                <div class="sys-frame">
+                    <div class="sys-bar" style="background:@Grad(SYS_BLUE, SYS_BLUE2, "90deg")">
+                        <Ic N="scale-balance" C="#fff" S="22" />
+                        <span><b style="font-size:@Ui.Pt(13)">@Est.SISTEMA</b>&nbsp;&nbsp;<span style="color:#b9cde3">@Est.SISTEMA_NOME</span></span>
+                        <span class="sys-tag">AMBIENTE DE SIMULAÇÃO</span>
+                        <span class="sp"></span>
+                        @if (_cur != null)
+                        {
+                            <span style="color:#d5e2f0;font-size:@Ui.Pt(8.5)">Usuário: @_cur.O("socio").S("nome") — @_cur.O("socio").S("oab")</span>
+                        }
+                    </div>
+                    <div class="sys-crumb">
+                        <span class="grow">
+                            @if (_cur != null && _cur.B("processo_existe"))
+                            {
+                                <span>Consulta processual  ›  Detalhes do processo  ›  </span><b>@_cur.O("meta").S("numero")</b>
+                            }
+                            else
+                            {
+                                <span>Consulta processual</span>
+                            }
+                        </span>
+                        <span style="color:#5c6b7a;font-size:@Ui.Pt(8.5)">Clique no código do documento para abri-lo</span>
+                    </div>
+                    <div class="grow" style="display:flex">
+                        <HtmlView @ref="_browser" OnLinkClicked="Anchor" />
+                    </div>
+                </div>
+            </div>
+            @* ─────────── minha peça *@
+            <div class="col" style="position:absolute;inset:0;gap:10px;padding:16px 26px 14px;display:@(_view == "peca" ? "flex" : "none")">
+                <div class="card row top" style="gap:14px;padding:12px 16px">
+                    <div class="icon-badge" style="width:38px;height:38px;border-radius:11px;background:@T["accent_soft"]"><Ic N="clipboard-text-outline" C="@T["accent"]" S="20" /></div>
+                    <div class="grow wrap">@((MarkupString)(_cur != null ? TaskHtml() : ""))</div>
+                </div>
+                <div class="row" style="background:@T["surface2"];border:1px solid @T["border"];border-radius:10px;padding:4px 6px;gap:1px;flex-wrap:wrap">
+                    <button class="tool" title="Desfazer" @onclick='() => _ed.Cmd("undo")'><Ic N="undo" /></button>
+                    <button class="tool" title="Refazer" @onclick='() => _ed.Cmd("redo")'><Ic N="redo" /></button>
+                    <span class="vline"></span>
+                    <button class="tool @EOn("bold")" title="Negrito" @onclick='() => _ed.Cmd("bold")'><Ic N="format-bold" /></button>
+                    <button class="tool @EOn("italic")" title="Itálico" @onclick='() => _ed.Cmd("italic")'><Ic N="format-italic" /></button>
+                    <button class="tool @EOn("underline")" title="Sublinhado" @onclick='() => _ed.Cmd("underline")'><Ic N="format-underline" /></button>
+                    <button class="tool" title="Marca-texto amarelo" @onclick='() => _ed.Cmd("highlight", "#fff3a3")'><Ic N="format-color-highlight" /></button>
+                    <span class="vline"></span>
+                    @foreach (var (key, icon, tip) in Aligns)
+                    {
+                        var k = key;
+                        <button class="tool @(_ed?.State.S("align", "left") == k ? "on" : "")" title="@tip" @onclick='() => _ed.Cmd("align", k)'><Ic N="@icon" /></button>
+                    }
+                    <button class="tool" title="Recuo da primeira linha" @onclick='() => _ed.Cmd("indentFirst")'><Ic N="format-indent-increase" /></button>
+                    <button class="tool" title="Lista" @onclick='() => _ed.Cmd("bullet")'><Ic N="format-list-bulleted" /></button>
+                    <span class="vline"></span>
+                    <select class="field sm" style="width:64px" @onchange="e => SetSize(V(e))">
+                        @foreach (var s in new[] { "10", "11", "12", "13", "14", "16" })
+                        {
+                            <option value="@s" selected="@(s == "12")">@s</option>
+                        }
+                    </select>
+                    <span class="sp"></span>
+                    <button class="btn soft" title="Endereçamento, qualificação e tópicos prontos para você completar" @onclick="InsertStructure">
+                        <Ic N="file-tree-outline" C="@T["accent"]" S="16" /><span>Inserir estrutura da peça</span>
+                    </button>
+                </div>
+                <div class="paper grow" style="padding:18px 14px 10px 40px;flex-direction:row">
+                    <RichEditor @ref="_ed" Mode="peca" OnChanged="OnPecaChanged" OnStateChanged="StateHasChanged" OnContext="PecaMenu" />
+                </div>
+                <div class="row" style="gap:8px">
+                    <span class="faint">@PecaStatus()</span>
+                    <span class="sp"></span>
+                    <button class="tool" style="width:36px;height:36px" title="Exportar a peça em PDF" @onclick="ExportPeca"><Ic N="file-pdf-box" C="#d9480f" /></button>
+                    <button class="btn soft" title="Solicitar correção de profissional recomendado" @onclick="AskCorrection"><Ic N="account-tie-voice-outline" C="@T["accent"]" S="16" /><span>Pedir correção profissional</span></button>
+                    @if (_cur != null && _cur.S("status") != "entregue")
+                    {
+                        <button class="btn primary" @onclick="Deliver"><Ic N="send-outline" C="#fff" S="16" /><span>Entregar ao chefe</span></button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    @if (_cur == null)
+    {
+        <EmptyState Icon="briefcase-outline" Title="Seu estágio começa aqui"
+                    Text="Você vai receber e-mails dos sócios do escritório com casos reais de diferentes áreas e fases do processo. Leia o processo, entenda o que aconteceu e redija a peça pedida."
+                    BtnText="Receber primeiro caso" OnClick="() => NovoCaso()" />
+    }
+</div>
+
+@code {
+    protected override string PageKey => "estagio";
+
+    static readonly (string, string, string)[] FilterOpts = { ("abertos", "Pendentes", null), ("entregues", "Entregues", null), ("todos", "Todos", null) };
+    static readonly (string, string, string)[] ViewOpts = { ("email", "E-mail", "email-outline"), ("processo", "Processo", "scale-balance"),
+        ("peca", "Minha peça", "file-document-edit-outline") };
+    static readonly (string, string, string)[] Aligns = { ("left", "format-align-left", "Esquerda"), ("center", "format-align-center", "Centralizar"),
+        ("right", "format-align-right", "Direita"), ("justify", "format-align-justify", "Justificar") };
+
+    JsonArray Cases => Store.Data.O("estagio").A("cases");
+    JsonObject _cur;
+    string _q = "", _filter = "abertos", _view = "email";
+    bool _loading;
+    Once _saveTimer;
+    SearchBox _search;
+    RichEditor _ed;
+    HtmlView _browser;
+    ElementReference _newBtn, _moreBtn, _mailScroll;
+
+    string EOn(string k) => _ed != null && _ed.State.B(k) ? "on" : "";
+
+    static string Initials(string n) => string.Concat(n.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => w[0])).Up();
+    static string SocioInitials(JsonObject s) => string.Concat(s.S("nome")[4..].Trim().Split(' ').Take(2).Select(w => w[0])).Up();
+
+    protected override void Init()
+    {
+        _saveTimer = new Once(800, () => InvokeAsync(() => { SavePeca(); StateHasChanged(); }));
+        if (Store.Data["estagio"] is not JsonObject) Store.Data["estagio"] = new JsonObject { ["cases"] = new JsonArray() };
+        if (Cases.Count > 0)
+        {
+            var last = (JsonObject)Cases[Cases.Count - 1];
+            Post(() => OpenCase(last));
+        }
+    }
+
+    // ─────────────────────────── lateral
+    Task NewMenu()
+    {
+        var m = new List<MItem> { MItem.Async("shuffle-variant", "Caso aleatório (qualquer área)", () => NovoCaso()) };
+        m.Add(MItem.Sub("shape-outline", "Escolher área", Casos.AREAS_ESTAGIO.Select(a => MItem.Async(null, a, () => NovoCaso(a))).ToList()));
+        m.Add(MItem.Sub("file-document-multiple-outline", "Escolher tipo de peça", Casos.FASES.Select(f => MItem.Async(null, f.text, () => NovoCaso(fase: f.key))).ToList()));
+        return Win.ShowMenuAt(m, _newBtn);
+    }
+
+    void InboxMenu(JsonObject c, MouseEventArgs e)
+    {
+        Win.ShowMenu(new List<MItem>
+        {
+            MItem.Of("email-mark-as-unread", "Marcar como não lido", () => MarkUnread(c)),
+            MItem.Sep(),
+            MItem.Async("delete-outline", "Excluir caso", () => DeleteCase(c), T["danger"]),
+        }, e);
+    }
+
+    void MarkUnread(JsonObject c)
+    {
+        c["lido"] = false;
+        Win.Save();
+    }
+
+    Task CaseMenu()
+    {
+        if (_cur == null) return Task.CompletedTask;
+        return Win.ShowMenuAt(new List<MItem>
+        {
+            MItem.Async("file-pdf-box", "Exportar minha peça (PDF)", ExportPeca),
+            MItem.Async("file-word-box", "Exportar minha peça (Word .doc)", ExportDoc),
+            MItem.Async("account-tie-voice-outline", "Solicitar correção de profissional recomendado", AskCorrection),
+            MItem.Sep(),
+            MItem.Async("delete-outline", "Excluir caso", () => DeleteCase(_cur), T["danger"]),
+        }, _moreBtn);
+    }
+
+    // ─────────────────────────── e-mail
+    RenderFragment Message(JsonObject c, JsonObject msg, string[] acoes) => __builder =>
+    {
+        bool mine = msg.S("tipo") == "estagiario";
+        var socio = c.O("socio");
+        var initials = mine ? "EU" : SocioInitials(socio);
+        var col = mine ? T["accent"] : socio.S("cor");
+        var d = TryIso(msg.S("data"), out var dd) ? dd.ToString("dd/MM/yyyy HH:mm") : "";
+        var anexos = msg.A("anexos").Strs();
+        <div class="mail @(mine ? "mine" : "")">
+            <div class="row top" style="gap:12px">
+                <span class="avatar" style="width:40px;height:40px;background:@Grad(col, Mix(col, "#000000", .25))">@initials</span>
+                <div class="col grow" style="gap:1px">
+                    <div><b>@(mine ? NomeEstagiario() : msg.S("de"))</b> <span style="color:@T["faint"]">&lt;@msg.S("email")&gt;</span></div>
+                    <div class="faint">para @msg.S("para")</div>
+                </div>
+                <span class="faint">@d</span>
+            </div>
+            <div class="mail-body">@((MarkupString)Personalize(msg.S("html")))</div>
+            @if (anexos.Count > 0)
+            {
+                <div class="caption">@($"{anexos.Count} ANEXO(S)")</div>
+                <div class="row" style="flex-wrap:wrap;gap:8px">
+                    @foreach (var code in anexos)
+                    {
+                        if (code.StartsWith("MINUTA"))
+                        {
+                            <button class="btn" @onclick='() => SetView("peca")'><Ic N="file-word-box" C="#2b579a" S="16" /><span>@($"{c.O("meta").O("tarefa").S("peca")} (minuta).docx")</span></button>
+                        }
+                        else
+                        {
+                            var (doc, _) = FindDoc(c, $"anexo:{code}");
+                            if (doc != null)
+                            {
+                                var dc = doc;
+                                <button class="btn" @onclick="() => OpenDoc(dc)"><Ic N="file-pdf-box" C="#d9480f" S="16" /><span>@($"{doc.S("title")}.pdf")</span></button>
+                            }
+                        }
+                    }
+                </div>
+            }
+            @if (acoes != null && acoes.Length > 0)
+            {
+                <div class="row" style="gap:8px;flex-wrap:wrap">
+                    @foreach (var a in acoes)
+                    {
+                        if (a == "processo" && c.B("processo_existe"))
+                        {
+                            <button class="btn soft" @onclick='() => SetView("processo")'><Ic N="scale-balance" C="@T["accent"]" S="16" /><span>Abrir processo no @Est.SISTEMA</span></button>
+                        }
+                        else if (a == "redigir")
+                        {
+                            <button class="btn primary" @onclick='() => SetView("peca")'><Ic N="file-document-edit-outline" C="#fff" S="16" /><span>Começar a redigir</span></button>
+                        }
+                        else if (a == "correcao")
+                        {
+                            <button class="btn primary" @onclick="AskCorrection"><Ic N="account-tie-voice-outline" C="#fff" S="16" /><span>Solicitar correção de profissional recomendado</span></button>
+                        }
+                    }
+                </div>
+            }
+        </div>
+    };
+
+    // ─────────────────────────── abrir caso
+    async Task OpenCase(JsonObject c)
+    {
+        SavePeca();
+        _cur = c;
+        if (!c.B("lido"))
+        {
+            c["lido"] = true;
+            if (c.S("status") == "novo") c["status"] = "aberto";
+            Win.Save();
+        }
+        await RenderProc();
+        await LoadPeca();
+        await SetView("email");
+        StateHasChanged();
+        var n = c.A("emails").Count;
+        Post(() => Js.ScrollTo(_mailScroll, n > 1).AsTask());
+        Win.RefreshCounts();
+    }
+
+    public async Task SetView(string k)
+    {
+        _view = k;
+        if (k == "peca")
+        {
+            StateHasChanged();
+            await Task.Delay(30);
+            await _ed.FocusEditor();
+        }
+    }
+
+    async Task RenderProc()
+    {
+        if (_browser != null) await _browser.SetHtml(ProcHtml(_cur), font: UI_FONT, pt: 9.5, color: "#1f2d3d");
+    }
+
+    async Task Anchor(string s)
+    {
+        if (s.StartsWith("doc:"))
+        {
+            var (d, ev) = FindDoc(_cur, s);
+            if (d != null) await OpenDoc(d, ev);
+        }
+    }
+
+    /// <summary>Visualizador de documento do processo.</summary>
+    public async Task OpenDoc(JsonObject doc, JsonObject ev = null)
+    {
+        var html = doc.S("html");
+        var sub = ev != null ? $"Evento {ev.I("n")} · {FmtBr(ev.S("date"))} {ev.S("time")} · {ev.S("desc")}" : "Documento anexado ao e-mail";
+        DialogState d = null;
+        d = new DialogState
+        {
+            Wide = true,
+            Body = __builder =>
+            {
+                <div class="col" style="height:100%;background:@T["bg"]">
+                    <div class="row" style="gap:10px;padding:12px 14px 12px 18px;background:@Grad(SYS_BLUE, SYS_BLUE2, "90deg");color:#fff">
+                        <span style="background:rgba(255,255,255,0.18);border-radius:6px;padding:3px 8px;font-weight:700">@doc.S("code")</span>
+                        <div class="col grow">
+                            <div class="ell" style="font-size:@Ui.Pt(11.5);font-weight:700">@doc.S("title")</div>
+                            <div class="ell" style="color:#c7d6e8;font-size:@Ui.Pt(8.5)">@sub</div>
+                        </div>
+                        <button class="btn" @onclick="() => Js.PrintHtml(Web.Page(html), 30, 25, 20, 20).AsTask()"><Ic N="file-pdf-box" S="16" /><span>Exportar PDF</span></button>
+                        <button class="tool" title="Fechar (Esc)" style="color:#fff" @onclick="() => Win.CloseDialog(d, null)"><Ic N="close" C="#fff" /></button>
+                    </div>
+                    <div class="grow" style="padding:22px 24px;display:flex;justify-content:center;min-height:0">
+                        <div style="background:#fff;border:1px solid #d3dae3;border-radius:4px;width:100%;max-width:820px;display:flex;box-shadow:0 4px 30px rgba(20,24,50,.16)">
+                            <DocFrame Html="@html" />
+                        </div>
+                    </div>
+                </div>
+            },
+        };
+        await Win.OpenDialog(d);
+    }
+
+    // ─────────────────────────── peça
+    string TaskHtml()
+    {
+        var c = _cur;
+        var t = c.O("meta").O("tarefa");
+        var cont = t.S("contagem") switch { "uteis" => "dias úteis", "corridos" => "dias corridos", _ => null };
+        string prazo;
+        if (cont != null) prazo = $"<b>{FmtBr(c.S("prazo_final"))}</b> ({t.I("dias")} {cont} — {Esc(t.S("fundamento"))})";
+        else if (t.S("contagem") == "audiencia") prazo = $"até a audiência de <b>{FmtBr(c.S("prazo_final"))}</b> ({Esc(t.S("fundamento"))})";
+        else prazo = "sem prazo processual";
+        var proc = c.B("processo_existe") ? c.O("meta").S("numero") : "ainda não ajuizado";
+        var st = c.S("status") == "entregue"
+            ? $"<span style='color:{T["success"]}; font-weight:700;'>Entregue em {FmtDt(c.S("entregue_em"))}</span>"
+            : $"Entregar ao chefe até <b>{FmtBr(c.S("limite"))}</b>";
+        return $"<span style='font-size:11pt; font-weight:700;'>{Esc(t.S("peca"))}</span><br>"
+               + $"<span style='color:{T["muted"]}'>Cliente: <b>{Esc(c.S("cliente"))}</b> · Processo: {proc} · "
+               + $"Prazo final: {prazo} · {st}</span>";
+    }
+
+    async Task LoadPeca()
+    {
+        var c = _cur;
+        _loading = true;
+        bool done = c.S("status") == "entregue";
+        await _ed.Load(c.S("peca_html"), done, SERIF);
+        _loading = false;
+    }
+
+    string PecaStatus()
+    {
+        int n = Words(_ed?.Plain ?? "");
+        var extra = _cur != null && _cur.S("status") == "entregue" ? " · somente leitura (já entregue)" : " · salvo automaticamente";
+        return $"{n} palavra{(n != 1 ? "s" : "")}{extra}";
+    }
+
+    Task SetSize(string s) => _ed.Cmd("size", double.Parse(s, Inv));
+
+    void OnPecaChanged()
+    {
+        if (_loading || _cur == null) return;
+        _saveTimer.Start();
+    }
+
+    public void SavePeca()
+    {
+        _saveTimer?.Stop();
+        var c = _cur;
+        if (c == null || _loading || _ed == null || !_ed.Modified) return;
+        c["peca_html"] = _ed.FullHtml;
+        c["peca_atualizada"] = NowIso();
+        _ed.Modified = false;
+        Win.Save();
+    }
+
+    public override void Flush() => SavePeca();
+
+    void PecaMenu(JsonObject o)
+    {
+        if (_cur == null) return;
+        bool ro = o.B("ro");
+        Win.ShowMenu(new List<MItem>
+        {
+            MItem.Async("undo", "Desfazer", () => _ed.Cmd("undo"), enabled: o.B("canUndo") && !ro),
+            MItem.Async("redo", "Refazer", () => _ed.Cmd("redo"), enabled: o.B("canRedo") && !ro),
+            MItem.Sep(),
+            MItem.Async("content-cut", "Recortar", () => _ed.Cmd("cut"), enabled: o.B("hasSel") && !ro),
+            MItem.Async("content-copy", "Copiar", () => _ed.Cmd("copy"), enabled: o.B("hasSel")),
+            MItem.Async("content-paste", "Colar", () => _ed.Paste(false), enabled: !ro),
+            MItem.Async("clipboard-text-outline", "Colar sem formatação", () => _ed.Paste(true), enabled: !ro),
+            MItem.Async("select-all", "Selecionar tudo", () => _ed.Cmd("selectAll")),
+        }, o.D("x"), o.D("y"));
+    }
+
+    async Task InsertStructure()
+    {
+        if (_cur == null || _cur.S("status") == "entregue") return;
+        if (_ed.Plain.Trim().Length > 0)
+        {
+            if (!await Win.Confirm("Inserir estrutura?", "A estrutura será inserida no ponto onde está o "
+                                                         + "cursor. Seu texto atual não será apagado.", ok: "Inserir", danger: false, icon: "file-tree-outline"))
+                return;
+        }
+        await _ed.Cmd("insertHtml", EstruturaPeca(_cur));
+        await _ed.FocusEditor();
+    }
+
+    string FileBase()
+    {
+        var t = _cur.O("meta").O("tarefa");
+        var nome = Regex.Replace($"{t.S("peca").Split(" — ")[0]} - {_cur.S("cliente")}", @"[^\w\- ]", "");
+        return nome.Length > 80 ? nome[..80] : nome;
+    }
+
+    public async Task ExportPeca()
+    {
+        if (_cur == null) return;
+        SavePeca();
+        await Js.PrintHtml(Web.Page(_ed.FullHtml.Length > 0 ? _ed.FullHtml : "<p></p>"), 30, 25, 20, 20);
+        Win.Toast("Escolha “Salvar como PDF” na janela de impressão");
+    }
+
+    async Task ExportDoc()
+    {
+        if (_cur == null) return;
+        SavePeca();
+        await Js.Download($"{FileBase()}.doc", "application/msword", Web.WordDoc("<html><body>" + _ed.Html + "</body></html>"));
+        Win.Toast("Arquivo exportado");
+    }
+
+    async Task Deliver()
+    {
+        var c = _cur;
+        if (c == null || c.S("status") == "entregue") return;
+        SavePeca();
+        int n = Words(_ed.Plain);
+        if (n < 30)
+        {
+            await Win.Info("Peça vazia", "Escreva a peça antes de entregar ao chefe.", "alert-outline");
+            return;
+        }
+        var msg = $"A peça tem {n} palavras. Depois de entregue, ela fica bloqueada para edição.";
+        if (n < 250)
+            msg = $"A peça está curta ({n} palavras). Tem certeza de que está completa? Depois de entregue, ela "
+                  + "fica bloqueada para edição.";
+        if (!await Win.Confirm("Entregar ao chefe?", msg, ok: "Entregar", danger: false, icon: "send-outline")) return;
+        var t = c.O("meta").O("tarefa");
+        var agora = DateTime.Now;
+        var s = c.O("socio");
+        c["status"] = "entregue";
+        c["entregue_em"] = agora.ToString("yyyy-MM-dd'T'HH:mm:ss", Inv);
+        var emails = c.A("emails");
+        var assunto0 = emails.Objs().First().S("assunto");
+        emails.Add(new JsonObject
+        {
+            ["de"] = "Você", ["email"] = $"estagio@{Est.FIRMA_DOMINIO}", ["para"] = s.S("nome"), ["data"] = c.S("entregue_em"),
+            ["tipo"] = "estagiario", ["anexos"] = new JsonArray("MINUTA"), ["assunto"] = "Re: " + assunto0,
+            ["html"] = $"<p>{Esc(s.S("nome").Split(' ')[0])} {Esc(s.S("curto"))}, segue a minuta de "
+                       + $"<b>{Esc(t.S("peca").Split(" — ")[0].ToLowerInvariant())}</b> do caso "
+                       + $"{Esc(c.S("titulo"))} para sua revisão.</p><p>Fico à disposição para ajustes.</p>",
+        });
+        var rnd = new Random();
+        var resp = agora.AddMinutes(rnd.Next(12, 56)).ToString("yyyy-MM-dd'T'HH:mm:ss", Inv);
+        var ok_txt = new[]
+        {
+            "Recebi, obrigad{a}! Vou revisar ainda hoje e, estando tudo certo, protocolo.",
+            "Obrigad{a} pela minuta! Vou ler com calma, fazer os ajustes finais e peticionar.",
+            "Chegou aqui. Dou uma revisada e já protocolo no sistema.",
+        }[rnd.Next(3)].Replace("{a}", s.B("f") ? "a" : "o");
+        emails.Add(new JsonObject
+        {
+            ["de"] = s.S("nome"), ["email"] = $"{s.S("email")}@{Est.FIRMA_DOMINIO}", ["para"] = "você", ["data"] = resp, ["tipo"] = "socio",
+            ["assunto"] = "Re: " + assunto0, ["anexos"] = new JsonArray(),
+            ["html"] = $"<p>Oi, %%NOME%%. {ok_txt}</p>"
+                       + "<p>Uma dica: se quiser um retorno detalhado sobre a sua peça — estrutura, fundamentos, pedidos e "
+                       + "linguagem —, peça a <b>correção com um profissional recomendado</b>. O professor analisa o seu "
+                       + "texto e conversa com você por videochamada. É a forma mais rápida de evoluir.</p>"
+                       + $"<p>{Assin(s)}</p>",
+        });
+        Protocolar(c, agora);
+        Win.Save();
+        await OpenCase(c);
+        Win.Toast("Peça entregue ao chefe");
+    }
+
+    static string Assin(JsonObject s) =>
+        $"Abraço,<br><b>{s.S("nome")}</b><br><span style='color:#6b7186'>{s.S("cargo")}<br>{Est.FIRMA}</span>";
+
+    void Protocolar(JsonObject c, DateTime agora)
+    {
+        var t = c.O("meta").O("tarefa");
+        var s = c.O("socio");
+        var corpo = _ed.Html;
+        var code = t.S("code", "PET");
+        if (code.Length == 0) code = "PET";
+        var hoje = Today();
+        if (!c.B("processo_existe"))
+        {
+            var meta = c.O("meta");
+            var num = meta.S("numero");
+            var mm = Regex.Match(num, @"^(\d{7})-\d{2}\.(\d{4})\.(\d)\.(\d{2})\.(\d{4})$");
+            if (mm.Success)
+            {
+                var b = $"{mm.Groups[1].Value}{hoje.Year}{mm.Groups[3].Value}{mm.Groups[4].Value}{mm.Groups[5].Value}";
+                meta["numero"] = $"{mm.Groups[1].Value}-{Est.CnjDv(b):D2}.{hoje.Year}.{mm.Groups[3].Value}.{mm.Groups[4].Value}.{mm.Groups[5].Value}";
+            }
+            c["processo_existe"] = true;
+            var docs = new JsonArray(new JsonObject { ["code"] = "INIC1", ["title"] = t.S("peca").Split(" — ")[0], ["html"] = corpo });
+            foreach (var a in c.A("anexos").Objs())
+                docs.Add(new JsonObject { ["code"] = a.S("code"), ["title"] = a.S("title"), ["html"] = a.S("html") });
+            c["eventos"] = new JsonArray(
+                new JsonObject
+                {
+                    ["n"] = 1, ["date"] = IsoDate(hoje), ["time"] = agora.ToString("HH:mm:ss"), ["desc"] = "DISTRIBUÍDO POR SORTEIO",
+                    ["user"] = s.S("nome").Up(), ["detail"] = meta.S("orgao"), ["docs"] = docs,
+                },
+                new JsonObject
+                {
+                    ["n"] = 2, ["date"] = IsoDate(hoje), ["time"] = agora.AddMinutes(3).ToString("HH:mm:ss"),
+                    ["desc"] = "CONCLUSOS PARA DECISÃO/DESPACHO", ["user"] = "SISTEMA", ["detail"] = "", ["docs"] = new JsonArray(),
+                });
+            return;
+        }
+        var evs = c.A("eventos");
+        foreach (var e in evs.Objs())
+            if (e.Get("prazo") is JsonObject p && p.S("status") == "ABERTO") p["status"] = "FECHADO";
+        int n = evs.Count + 1;
+        var desc = t.S("tipo") == "agravo"
+            ? "COMUNICAÇÃO DE INTERPOSIÇÃO DE AGRAVO DE INSTRUMENTO (ART. 1.018 DO CPC)"
+            : t.S("peca").Split(" (")[0].Split(" — ")[0].Up();
+        evs.Add(new JsonObject
+        {
+            ["n"] = n, ["date"] = IsoDate(hoje), ["time"] = agora.ToString("HH:mm:ss"), ["desc"] = desc, ["user"] = s.S("nome").Up(),
+            ["detail"] = "Petição protocolada pelo escritório",
+            ["docs"] = new JsonArray(new JsonObject { ["code"] = $"{code}1", ["title"] = t.S("peca").Split(" — ")[0], ["html"] = corpo }),
+        });
+    }
+
+    /// <summary>Diálogo da correção profissional.</summary>
+    public async Task AskCorrection()
+    {
+        if (_cur == null) return;
+        SavePeca();
+        var c = _cur;
+        var url = CorrecaoUrl();
+        DialogState d = null;
+        d = new DialogState
+        {
+            Width = 560,
+            Body = __builder =>
+            {
+                <div class="row top" style="gap:14px">
+                    <div class="icon-badge" style="width:48px;height:48px;border-radius:14px;background:@T["accent_soft"]"><Ic N="account-tie-voice-outline" C="@T["accent"]" S="26" /></div>
+                    <div class="col grow" style="gap:4px">
+                        <div class="h2 wrap">Correção de profissional recomendado</div>
+                        <div class="muted wrap">Um professor corrige a sua peça e conversa com você por videochamada, apontando acertos, erros de estrutura, fundamentos e pedidos.</div>
+                    </div>
+                </div>
+                int i = 1;
+                foreach (var (icn, tt, dd) in new[]
+                {
+                    ("file-pdf-box", "Exporte a sua peça em PDF", "Você vai anexá-la no formulário."),
+                    ("credit-card-outline", "Faça o pagamento e preencha o formulário", "Na página que vai abrir, com seus dados e a peça."),
+                    ("video-outline", "O professor entra em contato", "Para agendar a correção por videochamada."),
+                })
+                {
+                    <div class="row" style="gap:12px;padding:10px 14px;background:@T["surface2"];border:1px solid @T["border"];border-radius:12px">
+                        <span class="avatar" style="width:28px;height:28px;background:@T["accent"]">@(i++)</span>
+                        <div class="col grow"><b>@tt</b><span class="faint">@dd</span></div>
+                        <Ic N="@icn" C="@T["muted"]" S="20" />
+                    </div>
+                }
+                if (string.IsNullOrEmpty(url))
+                {
+                    <div class="wrap" style="background:@T["warn_soft"];border-radius:10px;padding:10px 12px;color:@Ink(T["warn"], .35)">
+                        O link do formulário ainda não foi configurado. Peça o link ao seu professor e cadastre em Estágio › engrenagem.
+                    </div>
+                }
+                <div class="row" style="gap:8px">
+                    <button class="btn" @onclick="ExportPeca"><Ic N="file-pdf-box" S="16" /><span>Exportar minha peça (PDF)</span></button>
+                    <span class="sp"></span>
+                    <button class="btn ghost" @onclick="() => Win.CloseDialog(d, null)">Fechar</button>
+                    @if (!string.IsNullOrEmpty(url))
+                    {
+                        <button class="btn primary" @onclick='() => Win.CloseDialog(d, "go")'><Ic N="open-in-new" C="#fff" S="16" /><span>Ir para o pagamento e formulário</span></button>
+                    }
+                    else
+                    {
+                        <button class="btn primary" @onclick='() => Win.CloseDialog(d, "config")'><Ic N="cog-outline" C="#fff" S="16" /><span>Configurar link</span></button>
+                    }
+                </div>
+            },
+        };
+        var r = await Win.OpenDialog(d);
+        if (r == "go")
+        {
+            await Js.OpenUrl(CorrecaoUrl());
+            c["correcao"] = true;
+            Win.Save();
+        }
+        else if (r == "config") await OpenSettings();
+    }
+
+    // ─────────────────────────── casos
+    async Task NovoCaso(string area = null, string fase = null)
+    {
+        if (string.IsNullOrEmpty(EstSettings().S("estagiario")))
+        {
+            var nome = await Win.Ask("Bem-vindo ao escritório!", $"Você é o(a) novo(a) estagiário(a) de {Est.FIRMA}. "
+                                                                 + "Como devemos te chamar?", "", icon: "account-outline", ok: "Começar",
+                placeholder: "Seu nome");
+            if (string.IsNullOrEmpty(nome)) return;
+            EstSettings()["estagiario"] = nome;
+        }
+        var evitar = new HashSet<(string, string)>(Cases.Objs().TakeLast(12).Select(c => (c.S("familia"), c.S("variante"))));
+        var caso = Casos.GerarCaso(area, fase, evitar);
+        Cases.Add(caso);
+        Win.Save();
+        if (_filter == "entregues") _filter = "abertos";
+        await OpenCase(caso);
+        Win.Toast("Novo e-mail na caixa de entrada");
+    }
+
+    async Task DeleteCase(JsonObject c)
+    {
+        if (!await Win.Confirm("Excluir caso?", "O caso, o processo e a sua peça serão excluídos.")) return;
+        Cases.Remove(c);
+        if (c == _cur) _cur = null;
+        Win.Save();
+        if (Cases.Count > 0) await OpenCase((JsonObject)Cases[Cases.Count - 1]);
+        Win.RefreshCounts();
+    }
+
+    /// <summary>Configurações do estágio.</summary>
+    public async Task OpenSettings()
+    {
+        var nome = EstSettings().S("estagiario");
+        var url = EstSettings().S("correcao_url");
+        bool showUrl = string.IsNullOrEmpty(Est.CORRECAO_URL);
+        DialogState d = null;
+        d = new DialogState
+        {
+            Width = 500,
+            Body = __builder =>
+            {
+                <div class="col" style="gap:10px" @onkeydown='e => { if (e.Key == "Enter") Win.CloseDialog(d, "ok"); }'>
+                    <div class="h2">Configurações do estágio</div>
+                    <div class="caption">SEU NOME</div>
+                    <input class="field" placeholder="Como o seu chefe vai te chamar nos e-mails" value="@nome" @oninput="e => nome = V(e)" @ref="d.InputRef" />
+                    @if (showUrl)
+                    {
+                        <div class="caption" style="margin-top:6px">LINK DA CORREÇÃO PROFISSIONAL</div>
+                        <input class="field" placeholder="https://… (página de pagamento / formulário)" value="@url" @oninput="e => url = V(e)" />
+                    }
+                    <div class="row" style="gap:8px;margin-top:6px">
+                        <span class="sp"></span>
+                        <button class="btn" @onclick="() => Win.CloseDialog(d, null)">Cancelar</button>
+                        <button class="btn primary" @onclick='() => Win.CloseDialog(d, "ok")'>Salvar</button>
+                    </div>
+                </div>
+            },
+        };
+        if (await Win.OpenDialog(d) != "ok") return;
+        EstSettings()["estagiario"] = (nome ?? "").Trim();
+        if (showUrl)
+        {
+            var u = (url ?? "").Trim();
+            if (u.Length > 0 && !Regex.IsMatch(u, "^https?://")) u = "https://" + u;
+            EstSettings()["correcao_url"] = u;
+        }
+        Win.Save();
+    }
+
+    public override void FocusSearch() => _ = _search.FocusAll();
+    public override void CtrlN() => _ = NovoCaso();
+
+    public int Pendentes() => Cases.Objs().Count(c => c.S("status") != "entregue");
+}
