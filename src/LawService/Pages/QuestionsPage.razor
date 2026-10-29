@@ -574,6 +574,17 @@
         Win.Save();
     }
 
+    public void OpenById(string id)
+    {
+        var q = Qs.Objs().FirstOrDefault(x => x.S("id") == id);
+        if (q == null) return;
+        _fArea = null;
+        _fTema = null;
+        _fStatus = "all";
+        _q = "";
+        OpenQ(q);
+    }
+
     public override void FocusSearch() => _ = _fSearch.FocusAll();
     public override void CtrlN() => NewQ();
 

@@ -767,6 +767,15 @@
         Win.Save();
     }
 
+    public async Task OpenById(string id)
+    {
+        var c = Cases.Objs().FirstOrDefault(x => x.S("id") == id);
+        if (c == null) return;
+        _filter = "todos";
+        _q = "";
+        await OpenCase(c);
+    }
+
     public override void FocusSearch() => _ = _search.FocusAll();
     public override void CtrlN() => _ = NovoCaso();
 

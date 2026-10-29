@@ -732,7 +732,7 @@
     if (e.altKey && !ctrl && /^[1-7n]$/.test(k)) { e.preventDefault(); post({ t: 'key', k: 'alt+' + k }); return; }
     if (k === 'escape') { post({ t: 'key', k: 'escape' }); return; }
     if (!ctrl || e.altKey) return;
-    if (!e.shiftKey && (k === 'f' || k === 's')) {
+    if (!e.shiftKey && (k === 'f' || k === 's' || k === 'k')) {
       e.preventDefault();
       post({ t: 'key', k: 'ctrl+' + k });
     }

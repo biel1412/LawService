@@ -13,58 +13,42 @@
 else
 {
     <div class="shell">
-        @* ─────────────── menu lateral *@
-        <aside class="rail @(_compact ? "compact" : "")">
-            <div class="rail-logo">
-                <div class="logo"><Ic N="scale-balance" C="#fff" S="22" /></div>
-                @if (!_compact)
+        @* ─────────────── dock de navegação *@
+        <aside class="dock" aria-label="Navegação">
+            <button class="dock-logo @(_todayOpen ? "on" : "")" aria-label="Resumo de hoje" @onclick="ToggleToday">
+                <Ic N="scale-balance" C="#fff" S="22" />
+                <span class="dock-tip">Resumo de hoje</span>
+            </button>
+            <nav class="dock-nav">
+                @for (int i = 0; i < Nav.Length; i++)
                 {
-                    <div class="col">
-                        <div class="logo-name">@APP_NAME</div>
-                        <div class="logo-sub">seu espaço de aprovação</div>
-                    </div>
-                }
-            </div>
-            <div class="rail-menu">@(_compact ? "" : "MENU")</div>
-            @foreach (var (key, icon, text) in Nav)
-            {
-                var k = key;
-                var on = Current == k;
-                <button class="nav @(on ? "on" : "")" title="@(_compact ? text : $"{text}  (Alt+{Array.IndexOf(Keys, k) + 1})")" @onclick="() => ShowPage(k)">
-                    <Ic N="@icon" C="@(on ? "#ffffff" : T["rail_text"])" S="20" />
-                    @if (!_compact)
+                    var (key, icon, text) = Nav[i];
+                    var k = key;
+                    var on = Current == k;
+                    var bubble = Bubble(k);
+                    if (k == "oab")
                     {
-                        <span class="nav-text">@text</span>
-                        @if (k != "oab" && k != "tutcc")
+                        <span class="dock-sep"></span>
+                    }
+                    <button class="dock-btn @(on ? "on" : "")" aria-label="@text" aria-current="@(on ? "page" : null)" @onclick="() => ShowPage(k)">
+                        <Ic N="@icon" S="22" />
+                        @if (bubble > 0)
                         {
-                            <span class="nav-badge">@Badge(k)</span>
+                            <span class="dock-bubble">@(bubble > 99 ? "99+" : bubble.ToString())</span>
                         }
-                    }
-                </button>
-            }
-            <div class="sp"></div>
-            @if (!_compact)
-            {
-                var c = Counts();
-                <div class="today">
-                    <div class="today-title">@c.title</div>
-                    @for (int i = 0; i < 4; i++)
-                    {
-                        <div class="today-row"><Ic N="@TodayIcons[i]" C="#8f95c4" S="15" /><span class="ell">@c.rows[i]</span></div>
-                    }
-                </div>
-            }
-            <div class="row" style="gap:6px;margin-top:8px">
-                @if (!_compact)
-                {
-                    <button class="btn railbtn grow" @ref="_dataBtn" @onclick="DataMenu" title="Exportar, importar e restaurar seus dados">
-                        <Ic N="database-outline" C="@T["rail_text"]" S="16" /><span>Meus dados</span>
+                        <span class="dock-tip">@text<kbd>Alt @(i + 1)</kbd></span>
                     </button>
                 }
-                <button class="btn railbtn" style="width:38px;padding:8px 0" title="@(_compact ? "Expandir menu" : "Recolher menu")" @onclick="() => SetCompact(!_compact)">
-                    <Ic N="@(_compact ? "chevron-double-right" : "chevron-double-left")" C="@T["rail_text"]" S="16" />
-                </button>
-            </div>
+            </nav>
+            <span class="sp"></span>
+            <button class="dock-btn" aria-label="Buscar e ir para" @onclick="OpenPalette">
+                <Ic N="magnify" S="22" />
+                <span class="dock-tip">Buscar e ir para<kbd>Ctrl K</kbd></span>
+            </button>
+            <button class="dock-btn" aria-label="Meus dados" @ref="_dataBtn" @onclick="DataMenu">
+                <Ic N="database-outline" S="22" />
+                <span class="dock-tip">Meus dados</span>
+            </button>
             <InputFile @ref="_file" OnChange="Import" accept=".zip,.json" style="display:none" />
         </aside>
 
@@ -103,6 +87,88 @@ else
             <div class="toast @(_toastOn ? "on" : "")">@_toast</div>
         </main>
     </div>
+
+    @* ─────────────── resumo de hoje *@
+    @if (_todayOpen)
+    {
+        var c = Counts();
+        <div class="pop-ov" @onclick="ToggleToday"></div>
+        <div class="today-pop" role="dialog" aria-label="Resumo de hoje">
+            <div class="today-head">
+                <div class="today-day">@c.title</div>
+                <div class="today-sub">seu espaço de aprovação</div>
+            </div>
+            <div class="today-list">
+                @for (int i = 0; i < 4; i++)
+                {
+                    var target = TodayTargets[i];
+                    <button class="today-item" @onclick="() => { _todayOpen = false; ShowPage(target); }">
+                        <Ic N="@TodayIcons[i]" S="18" />
+                        <span>@c.rows[i]</span>
+                    </button>
+                }
+            </div>
+            <div class="today-totals">
+                @foreach (var (key, icon, text) in Nav.Take(5))
+                {
+                    var k = key;
+                    <button class="today-total" @onclick="() => { _todayOpen = false; ShowPage(k); }">
+                        <b>@Badge(k)</b><span>@text</span>
+                    </button>
+                }
+            </div>
+        </div>
+    }
+
+    @* ─────────────── buscar e ir para *@
+    @if (_pal)
+    {
+        var items = PaletteItems();
+        if (_palIdx >= items.Count) _palIdx = Math.Max(0, items.Count - 1);
+        <div class="pal-ov" @onclick="ClosePalette">
+            <div class="pal" role="dialog" aria-label="Buscar e ir para" @onclick:stopPropagation="true">
+                <div class="pal-search">
+                    <Ic N="magnify" S="22" />
+                    <input @ref="_palInput" placeholder="Buscar páginas, questões, casos… ou ir para uma área" value="@_palQ"
+                           @oninput="PalInput" @onkeydown="PalKey" spellcheck="false" />
+                    <kbd>Esc</kbd>
+                </div>
+                <div class="pal-list">
+                    @{
+                        string group = null;
+                    }
+                    @for (int i = 0; i < items.Count; i++)
+                    {
+                        var it = items[i];
+                        var idx = i;
+                        if (it.Group != group)
+                        {
+                            group = it.Group;
+                            <div class="pal-group">@group</div>
+                        }
+                        <button class="pal-item @(idx == _palIdx ? "on" : "")" @onclick="() => RunPal(it)" @onmousemove="() => _palIdx = idx">
+                            <span class="pal-ic" style="@(it.Color != null ? "color:" + it.Color : "")"><Ic N="@it.Icon" S="18" /></span>
+                            <span class="pal-tx">
+                                <span class="ell">@it.Text</span>
+                                @if (!string.IsNullOrEmpty(it.Sub))
+                                {
+                                    <span class="pal-sub ell">@it.Sub</span>
+                                }
+                            </span>
+                            @if (it.Hint != null)
+                            {
+                                <kbd>@it.Hint</kbd>
+                            }
+                        </button>
+                    }
+                    @if (items.Count == 0)
+                    {
+                        <div class="pal-empty">Nada encontrado para “@_palQ”. Tente outra palavra.</div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
 
     @* ─────────────── menus *@
     @if (_menu != null)
@@ -177,8 +243,9 @@ else
     };
 
     static readonly string[] TodayIcons = { "calendar-clock", "target", "file-document-outline", "briefcase-outline" };
+    static readonly string[] TodayTargets = { "flashcards", "questoes", "cadernos", "estagio" };
 
-    bool _loaded, _compact;
+    bool _loaded;
     public string Current;
     readonly HashSet<string> _mounted = new();
     readonly Dictionary<string, PageBase> _pages = new();
@@ -210,6 +277,17 @@ else
                 d.Focused = true;
                 try { await Js.Focus(d.InputRef, !d.Multiline); } catch { }
             }
+        if (_pal && _palFocus)
+        {
+            _palFocus = false;
+            try { await Js.Focus(_palInput); } catch { }
+        }
+        if (_pendingNav != null)
+        {
+            var f = _pendingNav;
+            _pendingNav = null;
+            await f();
+        }
         if (_shown != null)
         {
             var k = _shown;
@@ -243,7 +321,6 @@ else
         Store.FillPlain(Store.Data);
         if (data != null) await DailyBackup(json);
         else await PersistNow();
-        _compact = Store.Settings.B("compact");
         _loaded = true;
         ShowPage("cadernos");
         if (damaged) Toast("Os dados salvos estavam danificados — uma cópia foi guardada");
@@ -321,13 +398,6 @@ else
     }
 
     // ─────────────────────────── navegação
-    void SetCompact(bool on)
-    {
-        _compact = on;
-        Store.Settings["compact"] = on;
-        Save();
-    }
-
     public void ShowPage(string key)
     {
         if (Current != null && Current != key && _pages.TryGetValue(Current, out var old)) old.Flush();
@@ -345,11 +415,20 @@ else
         if (k == "click")
         {
             if (_menu != null) CloseMenu();
+            if (_todayOpen) { _todayOpen = false; StateHasChanged(); }
+            return;
+        }
+        if (k == "ctrl+k")
+        {
+            if (_pal) ClosePalette();
+            else if (_dialogs.Count == 0) OpenPalette();
             return;
         }
         if (k == "escape")
         {
-            if (_menu != null) CloseMenu();
+            if (_pal) ClosePalette();
+            else if (_todayOpen) { _todayOpen = false; StateHasChanged(); }
+            else if (_menu != null) CloseMenu();
             else if (_dialogs.Count > 0) CloseDialog(_dialogs[^1], null);
             return;
         }
@@ -408,6 +487,174 @@ else
     }
 
     public void RefreshCounts() => InvokeAsync(StateHasChanged);
+
+    /// <summary>Número de pendências mostrado sobre o ícone (cartões para hoje, peças no estágio).</summary>
+    int Bubble(string k)
+    {
+        var d = Store.Data;
+        return k switch
+        {
+            "flashcards" => d.A("decks").Objs().SelectMany(x => x.A("cards").Objs()).Count(FlashPage.IsDue),
+            "estagio" => d.O("estagio").A("cases").Objs().Count(c => c.S("status") != "entregue"),
+            _ => 0,
+        };
+    }
+
+    // ─────────────────────────── resumo de hoje
+    bool _todayOpen;
+
+    void ToggleToday()
+    {
+        _todayOpen = !_todayOpen;
+        _menu = null;
+    }
+
+    // ─────────────────────────── buscar e ir para
+    record PalItem(string Group, string Icon, string Text, string Sub, string Hint, Func<Task> Run, string Color = null);
+
+    bool _pal;
+    string _palQ = "";
+    int _palIdx;
+    bool _palFocus;
+    ElementReference _palInput;
+    Func<Task> _pendingNav;
+
+    public void OpenPalette()
+    {
+        _menu = null;
+        _todayOpen = false;
+        _pal = true;
+        _palQ = "";
+        _palIdx = 0;
+        _palFocus = true;
+        StateHasChanged();
+    }
+
+    void ClosePalette()
+    {
+        _pal = false;
+        StateHasChanged();
+    }
+
+    async Task RunPal(PalItem it)
+    {
+        _pal = false;
+        StateHasChanged();
+        await it.Run();
+    }
+
+    void PalInput(ChangeEventArgs e)
+    {
+        _palQ = e.Value?.ToString() ?? "";
+        _palIdx = 0;
+    }
+
+    async Task PalKey(KeyboardEventArgs e)
+    {
+        var n = PaletteItems().Count;
+        switch (e.Key)
+        {
+            case "ArrowDown": _palIdx = n == 0 ? 0 : (_palIdx + 1) % n; break;
+            case "ArrowUp": _palIdx = n == 0 ? 0 : (_palIdx - 1 + n) % n; break;
+            case "Enter":
+                var items = PaletteItems();
+                if (_palIdx < items.Count) await RunPal(items[_palIdx]);
+                break;
+            case "Escape": ClosePalette(); break;
+        }
+    }
+
+    /// <summary>Abre uma área e, quando ela estiver pronta, executa a ação (abrir página, questão, caso…).</summary>
+    Task Go(string key, Func<PageBase, Task> then = null)
+    {
+        ShowPage(key);
+        if (then == null) return Task.CompletedTask;
+        _pendingNav = async () =>
+        {
+            await Task.Delay(150);
+            if (_pages.TryGetValue(key, out var p))
+            {
+                await then(p);
+                p.Refresh();
+            }
+            StateHasChanged();
+        };
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    List<PalItem> PaletteItems()
+    {
+        var q = Norm(_palQ);
+        bool M(params string[] fields) => q.Length == 0 || fields.Any(f => Norm(f).Contains(q));
+        var outp = new List<PalItem>();
+        for (int i = 0; i < Nav.Length; i++)
+        {
+            var (key, icon, text) = Nav[i];
+            var k = key;
+            if (M(text)) outp.Add(new PalItem("Ir para", icon, text, null, $"Alt {i + 1}", () => Go(k)));
+        }
+        var acts = new (string key, string icon, string text)[]
+        {
+            ("cadernos", "file-plus-outline", "Nova página"), ("questoes", "plus-circle-outline", "Nova questão"),
+            ("flashcards", "card-plus-outline", "Novo cartão"), ("estagio", "email-plus-outline", "Novo caso no estágio"),
+            ("tcc", "format-quote-open", "Nova citação no TCC"),
+        };
+        foreach (var (key, icon, text) in acts)
+        {
+            var k = key;
+            if (M(text)) outp.Add(new PalItem("Criar", icon, text, null, null, () => Go(k, p => { p.CtrlN(); return Task.CompletedTask; })));
+        }
+        if (q.Length < 2) return outp;
+        var d = Store.Data;
+        int n = 0;
+        void Walk(JsonArray pages, string nbName, string color)
+        {
+            foreach (var p in pages.Objs())
+            {
+                if (n >= 6) return;
+                var title = string.IsNullOrEmpty(p.S("title")) ? "Sem título" : p.S("title");
+                if (M(title, p.S("plain")))
+                {
+                    var id = p.S("id");
+                    outp.Add(new PalItem("Páginas", "file-document-outline", title, nbName, null,
+                        () => Go("cadernos", pg => ((NotesPage)pg).Select(id)), string.IsNullOrEmpty(p.S("color")) ? color : p.S("color")));
+                    n++;
+                }
+                Walk(p.A("children"), nbName, color);
+            }
+        }
+        foreach (var nb in d.A("notebooks").Objs()) Walk(nb.A("pages"), nb.S("name"), nb.S("color"));
+        foreach (var x in d.A("questions").Objs().Where(x => M(x.S("enunciado"), x.S("tema"), x.S("area"), x.S("banca"))).Take(5))
+        {
+            var id = x.S("id");
+            outp.Add(new PalItem("Questões", "checkbox-marked-circle-outline", Elide(Collapse(x.S("enunciado")), 90),
+                string.Join(" · ", new[] { x.S("area"), x.S("tema") }.Where(t => t.Length > 0)), null,
+                () => Go("questoes", pg => { ((QuestionsPage)pg).OpenById(id); return Task.CompletedTask; })));
+        }
+        foreach (var x in d.A("decks").Objs().Where(x => M(x.S("name"))).Take(3))
+        {
+            var id = x.S("id");
+            outp.Add(new PalItem("Baralhos", "cards-outline", x.S("name"), $"{x.A("cards").Count} cartões", null,
+                () => Go("flashcards", pg => { ((FlashPage)pg).OpenById(id); return Task.CompletedTask; }), x.S("color")));
+        }
+        foreach (var x in d.O("estagio").A("cases").Objs().Where(x => M(x.S("titulo"), x.S("cliente"), x.S("area"))).Take(4))
+        {
+            var id = x.S("id");
+            outp.Add(new PalItem("Casos do estágio", "briefcase-outline", x.S("titulo"), x.S("area"), null,
+                () => Go("estagio", pg => ((EstagioPage)pg).OpenById(id))));
+        }
+        if (d["tcc"] is JsonObject tcc)
+            foreach (var x in tcc.A("cits").Objs().Where(x => M(x.S("trecho"), x.S("autores"), x.S("titulo"))).Take(4))
+            {
+                var id = x.S("id");
+                outp.Add(new PalItem("Citações do TCC", "format-quote-open", Elide(Collapse(x.S("trecho").Length > 0 ? x.S("trecho") : x.S("titulo")), 90),
+                    Abnt.CitacaoTxt(x), null, () => Go("tcc", pg => { ((TccPage)pg).OpenCitById(id); return Task.CompletedTask; })));
+            }
+        return outp;
+    }
+
+    static string Norm(string s) => Abnt.Norm(s ?? "");
 
     // ─────────────────────────── aviso rápido
     string _toast = "";

@@ -975,6 +975,16 @@
         if (k == "citacoes" && _curCit == null) LoadForm(null);
     }
 
+    public void OpenCitById(string id)
+    {
+        var c = Cits.Objs().FirstOrDefault(x => x.S("id") == id);
+        if (c == null) return;
+        _view = "citacoes";
+        _cq = "";
+        _cPart = "";
+        OnCit(c);
+    }
+
     public override void FocusSearch()
     {
         if (_view == "escrever") _ = _qSearch.FocusAll();

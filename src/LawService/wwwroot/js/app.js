@@ -216,7 +216,7 @@ window.LS = (() => {
   const VIEW_SCRIPT = "<script>document.addEventListener('click',e=>{const a=e.target.closest&&e.target.closest('a[href]');"
     + "if(a){e.preventDefault();parent.postMessage({t:'link',href:a.getAttribute('href')},'*');}},true);"
     + "document.addEventListener('mousedown',()=>parent.postMessage({t:'click'},'*'));"
-    + "document.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&!e.altKey&&(k==='s'||k==='f')){e.preventDefault();parent.postMessage({t:'key',k:'ctrl+'+k},'*');}"
+    + "document.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if((e.ctrlKey||e.metaKey)&&!e.altKey&&(k==='s'||k==='f'||k==='k')){e.preventDefault();parent.postMessage({t:'key',k:'ctrl+'+k},'*');}"
     + "else if(e.altKey&&!e.ctrlKey&&/^[1-7n]$/.test(k)){e.preventDefault();parent.postMessage({t:'key',k:'alt+'+k},'*');}"
     + "else if(k==='escape'){parent.postMessage({t:'key',k:'escape'},'*');}},true);<\/script>";
   async function viewSet(id, frame, ref, html) {
@@ -270,7 +270,7 @@ window.LS = (() => {
   function key(k) { if (app) app.invokeMethodAsync('Key', k); }
   document.addEventListener('keydown', e => {
     const k = (e.key || '').toLowerCase();
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (k === 's' || k === 'f')) { e.preventDefault(); key('ctrl+' + k); }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (k === 's' || k === 'f' || k === 'k')) { e.preventDefault(); key('ctrl+' + k); }
     else if (e.altKey && !e.ctrlKey && !e.metaKey && /^[1-7n]$/.test(k)) { e.preventDefault(); key('alt+' + k); }
     else if (k === 'escape') key('escape');
   }, true);

@@ -55,7 +55,8 @@ O formato dos dados é o mesmo da versão para computador.
 
 | Atalho | Ação |
 |---|---|
-| Alt + 1 … 7 | Trocar de aba |
+| Ctrl + K | Buscar e ir para (páginas, questões, casos, citações e ações) |
+| Alt + 1 … 7 | Trocar de área |
 | Alt + N | Novo item na aba atual |
 | Ctrl + F | Buscar |
 | Ctrl + S | Salvar |

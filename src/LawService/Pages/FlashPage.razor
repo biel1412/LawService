@@ -515,6 +515,12 @@
         Refresh();
     }
 
+    public void OpenById(string id)
+    {
+        var d = Decks.Objs().FirstOrDefault(x => x.S("id") == id);
+        if (d != null) SelectDeck(d);
+    }
+
     public override void FocusSearch()
     {
         SetMode("cards");
